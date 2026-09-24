@@ -28,6 +28,12 @@ platform, unpack it and put `qube` on your `PATH`. With a Go toolchain (1.16 or 
 go install github.com/qubeintegrations/qube-cli/cmd/qube@latest
 ```
 
+Or with Homebrew:
+
+```bash
+brew install qubeintegrations/tap/qube
+```
+
 `qube version` prints the release you have. Shell completion:
 
 ```bash
@@ -69,8 +75,16 @@ go vet ./... && gofmt -l . && go test ./...
 Stdlib only; Go 1.16 is the floor so it builds on old CI images. CI (`.github/workflows/ci.yml`)
 vets, tests and builds on Linux, macOS and Windows. A release is a tag: `git tag v0.1.0 && git push
 --tags` runs [goreleaser](.goreleaser.yaml) from `.github/workflows/release.yml`, which builds the
-six binaries, writes `checksums.txt` and publishes the GitHub release. A Homebrew tap is prepared
-(commented out) in `.goreleaser.yaml` for when a public `qubeintegrations/homebrew-tap` exists.
+six binaries, writes `checksums.txt` and publishes the GitHub release.
+
+### Homebrew
+
+The release job also writes the formula `Formula/qube.rb` into the public
+[`qubeintegrations/homebrew-tap`](https://github.com/qubeintegrations/homebrew-tap) repository when the
+`HOMEBREW_TAP_GITHUB_TOKEN` secret is set on this repository (a fine-grained token with *Contents:
+read and write* on the tap repository only). Without the secret the formula is only generated under
+`dist/` and the release still succeeds. Users install with `brew install qubeintegrations/tap/qube`
+and upgrade with `brew upgrade qube`.
 
 The server side of the login (`/api/cli/*`, the **CLI sessions** pages) lives in the QuBe Sync
 application; this repository is only the client.

@@ -21,11 +21,21 @@ release:
   header: |
     Download the archive for your platform, unpack it and put `qube` on your PATH
     (`go install github.com/qubeintegrations/qube-cli/cmd/qube@{{ .Tag }}` works too).
-# Uncomment once a public `qubeintegrations/homebrew-tap` repository exists and the
-# release workflow has a token that may push to it (HOMEBREW_TAP_GITHUB_TOKEN):
-# brews:
-#   - repository: { owner: qubeintegrations, name: homebrew-tap, token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}" }
-#     homepage: https://qubesync.com
-#     description: "The QuBe Sync command line"
-#     install: bin.install "qube"
-#     test: system "#{bin}/qube version"
+# Homebrew: the release job pushes a formula to the public qubeintegrations/homebrew-tap
+# repository when the HOMEBREW_TAP_GITHUB_TOKEN secret is set (see README "Homebrew"); without
+# the secret the formula is only generated into dist/ and nothing is pushed, so a release never
+# fails on it. Users then run: brew install qubeintegrations/tap/qube
+brews:
+  - repository:
+      owner: qubeintegrations
+      name: homebrew-tap
+      token: '{{ envOrDefault "HOMEBREW_TAP_GITHUB_TOKEN" "" }}'
+    skip_upload: '{{ if envOrDefault "HOMEBREW_TAP_GITHUB_TOKEN" "" }}false{{ else }}true{{ end }}'
+    directory: Formula
+    homepage: https://qubesync.com
+    description: "The QuBe Sync command line"
+    commit_author:
+      name: qube-release-bot
+      email: releases@qubesync.com
+    install: bin.install "qube"
+    test: system "#{bin}/qube version"

@@ -6,6 +6,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -54,9 +55,11 @@ func TestUpsertEnv(t *testing.T) {
 	if string(got) != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
 	}
-	info, _ := os.Stat(p)
-	if info.Mode().Perm() != 0o644 {
-		t.Fatalf("existing mode must be kept, got %o", info.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		info, _ := os.Stat(p)
+		if info.Mode().Perm() != 0o644 {
+			t.Fatalf("existing mode must be kept, got %o", info.Mode().Perm())
+		}
 	}
 	entries, _ := os.ReadDir(filepath.Dir(p))
 	if len(entries) != 1 {
@@ -73,7 +76,7 @@ func TestUpsertEnvCreatesPrivateFile(t *testing.T) {
 	if string(got) != "QUBE_URL=u\nQUBE_API_KEY=k\nQUBE_WEBHOOK_SECRET=s\n" {
 		t.Fatalf("got %q", got)
 	}
-	if info, _ := os.Stat(p); info.Mode().Perm() != 0o600 {
+	if info, _ := os.Stat(p); runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("new file mode = %o", info.Mode().Perm())
 	}
 }
