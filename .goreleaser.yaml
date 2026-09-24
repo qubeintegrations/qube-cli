@@ -10,10 +10,10 @@ builds:
     ldflags: ["-s -w -X github.com/qubeintegrations/qube-cli/internal/api.Version={{.Version}}"]
 archives:
   - name_template: "qube_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    format: tar.gz
+    formats: [tar.gz]
     format_overrides:
       - goos: windows
-        format: zip
+        formats: [zip]
 checksum:
   name_template: checksums.txt
 release:
@@ -21,21 +21,29 @@ release:
   header: |
     Download the archive for your platform, unpack it and put `qube` on your PATH
     (`go install github.com/qubeintegrations/qube-cli/cmd/qube@{{ .Tag }}` works too).
-# Homebrew: the release job pushes a formula to the public qubeintegrations/homebrew-tap
-# repository when the HOMEBREW_TAP_GITHUB_TOKEN secret is set (see README "Homebrew"); without
-# the secret the formula is only generated into dist/ and nothing is pushed, so a release never
-# fails on it. Users then run: brew install qubeintegrations/tap/qube
-brews:
-  - repository:
+# Homebrew: the release job pushes a cask to the public qubeintegrations/homebrew-tap repository
+# (goreleaser's current way to ship a plain binary through Homebrew). It needs the
+# HOMEBREW_TAP_GITHUB_TOKEN secret, which .github/workflows/release.yml passes through; when the
+# secret is empty the cask is only written to dist/ and nothing is pushed, so a release never
+# fails on it. Users run: brew install qubeintegrations/tap/qube   (macOS; Linux uses the archive)
+homebrew_casks:
+  - name: qube
+    repository:
       owner: qubeintegrations
       name: homebrew-tap
-      token: '{{ envOrDefault "HOMEBREW_TAP_GITHUB_TOKEN" "" }}'
-    skip_upload: '{{ if envOrDefault "HOMEBREW_TAP_GITHUB_TOKEN" "" }}false{{ else }}true{{ end }}'
-    directory: Formula
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    skip_upload: "{{ if .Env.HOMEBREW_TAP_GITHUB_TOKEN }}false{{ else }}true{{ end }}"
+    directory: Casks
     homepage: https://qubesync.com
     description: "The QuBe Sync command line"
+    binaries: [qube]
     commit_author:
       name: qube-release-bot
       email: releases@qubesync.com
-    install: bin.install "qube"
-    test: system "#{bin}/qube version"
+    # The binaries are not notarized: clear Gatekeeper's quarantine flag on install.
+    hooks:
+      post:
+        install: |
+          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/qube"]
+          end

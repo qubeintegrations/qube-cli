@@ -28,7 +28,7 @@ platform, unpack it and put `qube` on your `PATH`. With a Go toolchain (1.16 or 
 go install github.com/qubeintegrations/qube-cli/cmd/qube@latest
 ```
 
-Or with Homebrew:
+Or with Homebrew on macOS:
 
 ```bash
 brew install qubeintegrations/tap/qube
@@ -79,11 +79,12 @@ six binaries, writes `checksums.txt` and publishes the GitHub release.
 
 ### Homebrew
 
-The release job also writes the formula `Formula/qube.rb` into the public
+The release job also writes the cask `Casks/qube.rb` into the public
 [`qubeintegrations/homebrew-tap`](https://github.com/qubeintegrations/homebrew-tap) repository when the
 `HOMEBREW_TAP_GITHUB_TOKEN` secret is set on this repository (a fine-grained token with *Contents:
-read and write* on the tap repository only). Without the secret the formula is only generated under
-`dist/` and the release still succeeds. Users install with `brew install qubeintegrations/tap/qube`
+read and write* on the tap repository only). Without the secret the cask is only generated under
+`dist/` and the release still succeeds. It is a cask rather than a formula because that is how
+goreleaser now ships prebuilt binaries; Homebrew resolves `qubeintegrations/tap/qube` either way. Users install with `brew install qubeintegrations/tap/qube`
 and upgrade with `brew upgrade qube`.
 
 The server side of the login (`/api/cli/*`, the **CLI sessions** pages) lives in the QuBe Sync
