@@ -12,13 +12,25 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
 )
 
-// Version is set by the release build (-X ...api.Version=v0.1.0); see .goreleaser.yaml.
+// Version is set by the release build (-X ...api.Version=0.1.0, see .goreleaser.yaml). A
+// `go install ...@v0.1.0` build has no ldflags, so it falls back to the module version Go
+// records in the binary; a plain `go build` in a checkout stays "0.0.0-dev".
 var Version = "0.0.0-dev"
+
+func init() {
+	if Version != "0.0.0-dev" {
+		return
+	}
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		Version = strings.TrimPrefix(info.Main.Version, "v")
+	}
+}
 
 func userAgent() string { return "qube-cli/" + Version }
 
