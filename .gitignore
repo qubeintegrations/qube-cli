@@ -1,0 +1,4 @@
+# the built binary at the module root (not cmd/qube, the source directory)
+/qube
+/qube.exe
+/dist/

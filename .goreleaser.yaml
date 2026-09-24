@@ -1,0 +1,31 @@
+# Tag `v0.1.0` on github.com/qubeintegrations/qube-cli; .github/workflows/release.yml runs goreleaser.
+version: 2
+project_name: qube
+builds:
+  - main: ./cmd/qube
+    binary: qube
+    env: [CGO_ENABLED=0]
+    goos: [darwin, linux, windows]
+    goarch: [amd64, arm64]
+    ldflags: ["-s -w -X github.com/qubeintegrations/qube-cli/internal/api.Version={{.Version}}"]
+archives:
+  - name_template: "qube_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format: tar.gz
+    format_overrides:
+      - goos: windows
+        format: zip
+checksum:
+  name_template: checksums.txt
+release:
+  name_template: "qube {{ .Version }}"
+  header: |
+    Download the archive for your platform, unpack it and put `qube` on your PATH
+    (`go install github.com/qubeintegrations/qube-cli/cmd/qube@{{ .Tag }}` works too).
+# Uncomment once a public `qubeintegrations/homebrew-tap` repository exists and the
+# release workflow has a token that may push to it (HOMEBREW_TAP_GITHUB_TOKEN):
+# brews:
+#   - repository: { owner: qubeintegrations, name: homebrew-tap, token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}" }
+#     homepage: https://qubesync.com
+#     description: "The QuBe Sync command line"
+#     install: bin.install "qube"
+#     test: system "#{bin}/qube version"
