@@ -36,6 +36,7 @@ homebrew_casks:
     directory: Casks
     homepage: https://qubesync.com
     description: "The QuBe Sync command line"
+    license: MIT
     binaries: [qube]
     commit_author:
       name: qube-release-bot

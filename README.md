@@ -89,3 +89,7 @@ and upgrade with `brew upgrade qube`.
 
 The server side of the login (`/api/cli/*`, the **CLI sessions** pages) lives in the QuBe Sync
 application; this repository is only the client.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
