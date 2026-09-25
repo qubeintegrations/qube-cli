@@ -41,10 +41,11 @@ homebrew_casks:
     commit_author:
       name: qube-release-bot
       email: releases@qubesync.com
-    # The binaries are not notarized: clear Gatekeeper's quarantine flag on install.
-    hooks:
-      post:
-        install: |
-          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/qube"]
-          end
+    # The binaries are not notarized: clear Gatekeeper's quarantine flag after install.
+    # Homebrew's declarative postflight_steps (the legacy `postflight` block is deprecated);
+    # goreleaser has no field for it yet, so it goes in as a custom block. Paths are relative
+    # to the cask's staged directory.
+    custom_block: |
+      postflight_steps do
+        run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "qube"], chdir: ".", must_succeed: false
+      end
