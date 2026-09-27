@@ -17,8 +17,19 @@ qube workflows push ./chart.json --publish
 qube api GET /connections           # any v2 path, with the app's key
 ```
 
-`qube help` lists every command. Every command takes `--json` (machine output), `--host`, `--app`
-and `--timeout`, anywhere on the line. Every command talks to the v2 API.
+`qube help` lists every command. Every command takes `--json` (machine output), `--host`, `--app`,
+`--timeout` and `--yes`, anywhere on the line. Every command talks to the v2 API.
+
+## Production apps
+
+In a production app, every request that changes something asks first, naming the app:
+creating or changing a connection (its password and onboarding link too), discarding a request, driving the
+simulator, every workflow change, run, answer or cancellation, and `qube api` with any method but `GET`.
+Reads never ask, and neither do `workflows validate` and `connections qwc`, which change nothing.
+Removing something (a connection, a workflow, a run) asks in any app. A script answers with `--yes`.
+Without a terminal, or under `--json`, a request that would ask is refused until `--yes` is given, so
+nothing reaches a production company file by accident. Sessions reach production apps only when you
+choose **every app** at `qube login`.
 
 ## Install
 

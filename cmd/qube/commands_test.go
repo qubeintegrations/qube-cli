@@ -93,7 +93,8 @@ func TestConnectionsDeleteHitsEndpoints(t *testing.T) {
 		},
 	})
 	setJSON(t, false)
-	out := captureStdout(t, func() { c.connections([]string{"delete", "conn_1", "--yes"}) })
+	c.yes = true
+	out := captureStdout(t, func() { c.connections([]string{"delete", "conn_1"}) })
 	if len(methods) != 2 || methods[0] != "GET" || methods[1] != "DELETE" {
 		t.Fatalf("methods = %v", methods)
 	}
@@ -444,7 +445,8 @@ func TestWorkflowsDeleteRun(t *testing.T) {
 		},
 	})
 	setJSON(t, false)
-	out := captureStdout(t, func() { c.workflows([]string{"delete-run", "conn_1", "run_1", "--yes"}) })
+	c.yes = true
+	out := captureStdout(t, func() { c.workflows([]string{"delete-run", "conn_1", "run_1"}) })
 	if gotMethod != "DELETE" || gotPath != "/api/v2/connections/conn_1/workflow_runs/run_1" {
 		t.Fatalf("method=%s path=%s", gotMethod, gotPath)
 	}

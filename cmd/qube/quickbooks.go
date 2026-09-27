@@ -49,7 +49,8 @@ func (c *ctx) connections(args []string) {
 		name := fs.String("name", "", "connection name")
 		redirect := fs.String("redirect-url", "", "where onboarding sends the user back (no query string: QuBe adds ?connection_id=...&state=...)")
 		parseAnywhere(fs, args)
-		cl, _ := c.appClient()
+		cl, creds := c.appClient()
+		c.confirmWrite(creds, "Create a connection")
 		body := map[string]string{}
 		if *simulated {
 			body["type"] = "simulated"
@@ -128,7 +129,8 @@ func (c *ctx) connections(args []string) {
 		if len(body) == 0 {
 			ui.Usage("usage: qube connections update <connection> [--name N] [--redirect-url U]")
 		}
-		cl, _ := c.appClient()
+		cl, creds := c.appClient()
+		c.confirmWrite(creds, "Update connection "+fs.Arg(0))
 		var out struct {
 			Data map[string]interface{} `json:"data"`
 		}
@@ -142,20 +144,19 @@ func (c *ctx) connections(args []string) {
 		fmt.Printf("Updated %s (%s)\n", str(out.Data["id"]), str(out.Data["name"]))
 	case "delete":
 		fs := flag.NewFlagSet("connections delete", flag.ExitOnError)
-		yes := fs.Bool("yes", false, "don't ask for confirmation")
 		parseAnywhere(fs, args)
 		if fs.NArg() < 1 {
 			ui.Usage("usage: qube connections delete <connection> [--yes]")
 		}
 		id := fs.Arg(0)
-		cl, _ := c.appClient()
+		cl, creds := c.appClient()
 		var show struct {
 			Data map[string]interface{} `json:"data"`
 		}
 		if err := cl.Do("GET", v2path("/connections/{connection_id}", id), nil, nil, &show); err != nil {
 			fail(err)
 		}
-		confirm(fmt.Sprintf("Remove connection %q (%s) and every queued request on it?", str(show.Data["name"]), id), *yes)
+		c.confirmDelete(creds, fmt.Sprintf("Remove connection %q (%s) and every queued request on it?", str(show.Data["name"]), id))
 		if err := cl.Do("DELETE", v2path("/connections/{connection_id}", id), nil, nil, nil); err != nil {
 			fail(err)
 		}
@@ -201,6 +202,8 @@ func (c *ctx) connections(args []string) {
 		if fs.NArg() < 1 {
 			ui.Usage("usage: qube connections password <connection> [--stdin]")
 		}
+		cl, creds := c.appClient()
+		c.confirmWrite(creds, "Replace the Web Connector password of connection "+fs.Arg(0))
 		var body interface{}
 		if *stdin {
 			raw, err := io.ReadAll(os.Stdin)
@@ -213,7 +216,6 @@ func (c *ctx) connections(args []string) {
 			}
 			body = map[string]string{"password": pw}
 		}
-		cl, _ := c.appClient()
 		var out struct {
 			Data map[string]interface{} `json:"data"`
 		}
@@ -232,7 +234,8 @@ func (c *ctx) connections(args []string) {
 		if fs.NArg() < 1 {
 			ui.Usage("usage: qube connections onboarding-url <connection>")
 		}
-		cl, _ := c.appClient()
+		cl, creds := c.appClient()
+		c.confirmWrite(creds, "Replace the onboarding link of connection "+fs.Arg(0))
 		var out struct {
 			Data map[string]interface{} `json:"data"`
 		}
@@ -347,7 +350,8 @@ func (c *ctx) requests(args []string) {
 			ui.Usage("usage: qube requests discard <connection> <id>")
 		}
 		connection, id := args[1], args[2]
-		cl, _ := c.appClient()
+		cl, creds := c.appClient()
+		c.confirmWrite(creds, "Discard request "+id)
 		var out struct {
 			Data map[string]interface{} `json:"data"`
 		}
@@ -433,8 +437,11 @@ func (c *ctx) simulator(args []string) {
 	if len(args) < 2 {
 		ui.Usage("usage: qube simulator show|reset|sync|faults <connection> [flags]")
 	}
-	cl, _ := c.appClient()
+	cl, creds := c.appClient()
 	connection := args[1]
+	if args[0] != "show" {
+		c.confirmWrite(creds, "Change the simulator of connection "+connection)
+	}
 	var out map[string]interface{}
 	switch args[0] {
 	case "show":
@@ -654,7 +661,8 @@ func (c *ctx) workflows(args []string) {
 		if err != nil {
 			ui.Fail("%s: %v", fs.Arg(0), err)
 		}
-		cl, _ := c.appClient()
+		cl, creds := c.appClient()
+		c.confirmWrite(creds, "Push workflow "+key+publishing(*publish))
 		var out map[string]interface{}
 		if err := cl.Do("PUT", v2path("/workflows/{key}", key), nil, body, &out); err != nil {
 			fail(err)
@@ -726,7 +734,8 @@ func (c *ctx) workflows(args []string) {
 		if *notes != "" {
 			body = map[string]string{"notes": *notes}
 		}
-		cl, _ := c.appClient()
+		cl, creds := c.appClient()
+		c.confirmWrite(creds, "Publish workflow "+fs.Arg(0))
 		var out struct {
 			Data map[string]interface{} `json:"data"`
 		}
@@ -742,7 +751,8 @@ func (c *ctx) workflows(args []string) {
 		if len(args) < 2 {
 			ui.Usage("usage: qube workflows unpublish KEY")
 		}
-		cl, _ := c.appClient()
+		cl, creds := c.appClient()
+		c.confirmWrite(creds, "Unpublish workflow "+args[1])
 		var out struct {
 			Data map[string]interface{} `json:"data"`
 		}
@@ -756,14 +766,13 @@ func (c *ctx) workflows(args []string) {
 		fmt.Printf("Unpublished %s (%s).\n", args[1], str(out.Data["state"]))
 	case "delete":
 		fs := flag.NewFlagSet("workflows delete", flag.ExitOnError)
-		yes := fs.Bool("yes", false, "don't ask for confirmation")
 		parseAnywhere(fs, args[1:])
 		if fs.NArg() < 1 {
 			ui.Usage("usage: qube workflows delete KEY [--yes]")
 		}
 		key := fs.Arg(0)
-		confirm(fmt.Sprintf("Delete workflow %q and its published versions?", key), *yes)
-		cl, _ := c.appClient()
+		cl, creds := c.appClient()
+		c.confirmDelete(creds, fmt.Sprintf("Delete workflow %q and its published versions?", key))
 		if err := cl.Do("DELETE", v2path("/workflows/{key}", key), nil, nil, nil); err != nil {
 			fail(err)
 		}
@@ -892,7 +901,8 @@ func (c *ctx) workflows(args []string) {
 		if len(fields) > 0 {
 			body = fields
 		}
-		cl, _ := c.appClient()
+		cl, creds := c.appClient()
+		c.confirmWrite(creds, "Install template "+fs.Arg(0)+publishing(*publish))
 		var out struct {
 			Data      map[string]interface{} `json:"data"`
 			Installed []string               `json:"installed"`
@@ -935,7 +945,8 @@ func (c *ctx) workflows(args []string) {
 		if *webhook != "" {
 			body["webhook_url"] = *webhook
 		}
-		cl, _ := c.appClient()
+		cl, creds := c.appClient()
+		c.confirmWrite(creds, fmt.Sprintf("Run workflow %s on connection %s", fs.Arg(0), *conn))
 		var out map[string]interface{}
 		if err := cl.Do("POST", v2path("/connections/{connection_id}/workflow_runs", *conn), nil, body, &out); err != nil {
 			fail(err)
@@ -1024,7 +1035,8 @@ func (c *ctx) workflows(args []string) {
 			ui.Usage("usage: qube workflows decide <connection> <run-id> <option> [--data JSON]")
 		}
 		body := map[string]interface{}{"option": fs.Arg(2), "data": readJSONArg(*data)}
-		cl, _ := c.appClient()
+		cl, creds := c.appClient()
+		c.confirmWrite(creds, fmt.Sprintf("Answer %q on run %s", fs.Arg(2), fs.Arg(1)))
 		var out map[string]interface{}
 		if err := cl.Do("POST", v2path("/connections/{connection_id}/workflow_runs/{run_id}/decisions", fs.Arg(0), fs.Arg(1)), nil, body, &out); err != nil {
 			fail(err)
@@ -1046,7 +1058,8 @@ func (c *ctx) workflows(args []string) {
 		if *reason != "" {
 			body = map[string]string{"reason": *reason}
 		}
-		cl, _ := c.appClient()
+		cl, creds := c.appClient()
+		c.confirmWrite(creds, "Cancel run "+fs.Arg(1))
 		var out struct {
 			Data map[string]interface{} `json:"data"`
 		}
@@ -1060,14 +1073,13 @@ func (c *ctx) workflows(args []string) {
 		fmt.Printf("Cancelled run %s (%s).\n", str(out.Data["id"]), str(out.Data["state"]))
 	case "delete-run":
 		fs := flag.NewFlagSet("workflows delete-run", flag.ExitOnError)
-		yes := fs.Bool("yes", false, "don't ask for confirmation")
 		parseAnywhere(fs, args[1:])
 		if fs.NArg() < 2 {
 			ui.Usage("usage: qube workflows delete-run <connection> <run-id> [--yes]")
 		}
 		id := fs.Arg(1)
-		confirm(fmt.Sprintf("Delete run %s and its step history?", id), *yes)
-		cl, _ := c.appClient()
+		cl, creds := c.appClient()
+		c.confirmDelete(creds, fmt.Sprintf("Delete run %s and its step history?", id))
 		if err := cl.Do("DELETE", v2path("/connections/{connection_id}/workflow_runs/{run_id}", fs.Arg(0), id), nil, nil, nil); err != nil {
 			fail(err)
 		}
@@ -1137,7 +1149,10 @@ func (c *ctx) rawAPI(args []string) {
 			body = []byte(*data)
 		}
 	}
-	cl, _ := c.appClient()
+	cl, creds := c.appClient()
+	if method != "GET" && method != "HEAD" {
+		c.confirmWrite(creds, method+" "+path)
+	}
 	res, status, err := cl.Raw(method, path, nil, body)
 	if err != nil {
 		fail(err)
@@ -1158,4 +1173,12 @@ func rawPath(p string) string {
 		p = "/" + p
 	}
 	return "/api/v2" + p
+}
+
+// publishing finishes a confirmation question for a call that may also publish.
+func publishing(publish bool) string {
+	if publish {
+		return " and publish it"
+	}
+	return ""
 }

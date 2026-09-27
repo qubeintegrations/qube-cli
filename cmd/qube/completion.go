@@ -18,7 +18,7 @@ var commandTree = map[string][]string{
 	"completion":  {"bash", "zsh", "fish"},
 }
 
-var globalFlags = []string{"--json", "--host", "--app", "--timeout"}
+var globalFlags = []string{"--json", "--host", "--app", "--timeout", "--yes"}
 
 func completion(args []string) {
 	if len(args) < 1 {

@@ -26,6 +26,7 @@ type ctx struct {
 	timeout      time.Duration
 	cfg          *config.File
 	bg           context.Context
+	yes          bool // --yes: answer a confirmation (production writes, deletes) for a script
 }
 
 func main() {
@@ -33,14 +34,17 @@ func main() {
 		usage()
 		return
 	}
-	// global flags may appear anywhere: --host, --app, --json, --timeout
+	// global flags may appear anywhere: --host, --app, --json, --timeout, --yes
 	var host, app, timeout string
+	var yes bool
 	var args []string
 	for i := 1; i < len(os.Args); i++ {
 		a := os.Args[i]
 		switch {
 		case a == "--json":
 			ui.JSON = true
+		case a == "--yes":
+			yes = true
 		case a == "--host" && i+1 < len(os.Args):
 			host = os.Args[i+1]
 			i++
@@ -76,6 +80,7 @@ func main() {
 		app:          app,
 		timeout:      parseTimeout(timeout),
 		cfg:          cfg,
+		yes:          yes,
 	}
 	bg, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -163,7 +168,7 @@ QuickBooks (acts as the default app, or --app):
   connections create [--simulated] [--name N] [--redirect-url U]
   connections show <connection>                             (table, or --json)
   connections update <connection> [--name N] [--redirect-url U]
-  connections delete <connection> [--yes]                   also discards every queued request on it
+  connections delete <connection>                           also discards every queued request on it
   connections qwc <connection> [--output FILE]              the .qwc file the Web Connector needs
   connections password <connection> [--stdin]               a new Web Connector password (never as a flag)
   connections onboarding-url <connection>                    a fresh onboarding link
@@ -182,7 +187,7 @@ QuickBooks (acts as the default app, or --app):
   workflows validate FILE                                   check a chart without pushing it
   workflows publish KEY [--notes TEXT]
   workflows unpublish KEY
-  workflows delete KEY [--yes]
+  workflows delete KEY
   workflows versions KEY [NUMBER]                           every published version, or one (JSON)
   workflows usage KEY [--version V]                         Markdown docs for the chart's input/output
   workflows schema                                          the chart JSON Schema
@@ -193,7 +198,7 @@ QuickBooks (acts as the default app, or --app):
                                                              (a run or its events: JSON)
   workflows decide <connection> <run-id> <option> [--data JSON]
   workflows cancel <connection> <run-id> [--reason TEXT]
-  workflows delete-run <connection> <run-id> [--yes]        only once the run has ended
+  workflows delete-run <connection> <run-id>                only once the run has ended
   api METHOD PATH [--data JSON|@file|-]                     any v2 call with the app's key (PATH /connections
                                                             means /api/v2/connections)
 
@@ -206,6 +211,10 @@ Global flags (anywhere on the line):
   --host H        the QuBe Sync host (default: the host you logged in to; QUBE_HOST)
   --app NAME|ID   act as this app instead of the default from ` + "`qube use`" + `
   --timeout 60    HTTP timeout in seconds, or a duration like 2m (QUBE_TIMEOUT)
+  --yes           answer yes when asked to confirm, for a script
+
+In a production app every request that changes something asks first (removing something asks in
+any app). Without a terminal, or under --json, such a request needs --yes.
 
 Exit codes: 0 ok, 1 failed, 2 wrong usage, 130 interrupted.
 Config: ` + configPathForHelp() + ` (QUBE_CONFIG overrides). QUBE_NO_BROWSER=1 stops login opening a browser.
