@@ -31,21 +31,25 @@ func TestProductionWritesNeedYes(t *testing.T) {
 			c.connections(args[1:])
 		case "api":
 			c.rawAPI(args[1:])
+		case "qb":
+			c.qb(args[1:])
 		}
 		os.Exit(0) // not refused
 	}
 	for _, args := range []string{
 		"connections update conn_1 --name Riverbend",
 		"api POST /connections/conn_1/customers --data {}",
+		"qb customers create conn_1 --name Northwind",
 	} {
 		var sent []string
 		c := newAPITestApp(t, false, map[string]http.HandlerFunc{
 			"/api/v2/": func(w http.ResponseWriter, r *http.Request) {
 				sent = append(sent, r.Method+" "+r.URL.Path)
 			},
+			"/api/v2/openapi.json": func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(qbSpec)) },
 		})
 		cmd := exec.Command(os.Args[0], "-test.run=^TestProductionWritesNeedYes$")
-		cmd.Env = append(os.Environ(), "QUBE_TEST_PRODUCTION_HOST="+c.host, "QUBE_TEST_PRODUCTION_ARGS="+args)
+		cmd.Env = append(os.Environ(), "QUBE_TEST_PRODUCTION_HOST="+c.host, "QUBE_TEST_PRODUCTION_ARGS="+args, "QUBE_CACHE_DIR="+t.TempDir())
 		out, err := cmd.CombinedOutput()
 		exit, ok := err.(*exec.ExitError)
 		if !ok || exit.ExitCode() != ui.ExitUsage {

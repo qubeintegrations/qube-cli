@@ -335,3 +335,16 @@ func captureStdout(t *testing.T, fn func()) string {
 	data, _ := io.ReadAll(r)
 	return string(data)
 }
+
+// setenv is t.Setenv, which Go 1.16 lacks.
+func setenv(t *testing.T, key, value string) {
+	old, had := os.LookupEnv(key)
+	os.Setenv(key, value)
+	t.Cleanup(func() {
+		if had {
+			os.Setenv(key, old)
+		} else {
+			os.Unsetenv(key)
+		}
+	})
+}

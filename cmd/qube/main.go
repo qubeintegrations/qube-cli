@@ -116,6 +116,8 @@ func main() {
 		c.simulator(args[1:])
 	case "workflows":
 		c.workflows(args[1:])
+	case "qb", "quickbooks":
+		c.qb(args[1:])
 	case "api":
 		c.rawAPI(args[1:])
 	case "completion":
@@ -163,7 +165,14 @@ Account:
   use <app> | use --host H         pick the default app / the default host (when logged in to several)
   env [--write .env] [--print]     the app's QUBE_URL, QUBE_API_KEY and QUBE_WEBHOOK_SECRET (written, not shown)
 
-QuickBooks (acts as the default app, or --app):
+QuickBooks operations (every one the host's v2 API has, read from its OpenAPI document):
+  qb [--refresh]                   every resource and its verbs (--refresh reads the list again)
+  qb <resource>                    a resource's operations
+  qb <resource> <verb> --help      an operation's flags (--help --json: its full schema)
+  qb <resource> <verb> <connection> [--flag value...] [--data JSON|@file|-]
+                                   queue it: e.g. qb customers list <connection> --max-returned 5
+
+Connections, requests, the simulator and workflows (as the default app, or --app):
   connections list
   connections create [--simulated] [--name N] [--redirect-url U]
   connections show <connection>                             (table, or --json)
@@ -218,6 +227,7 @@ any app). Without a terminal, or under --json, such a request needs --yes.
 
 Exit codes: 0 ok, 1 failed, 2 wrong usage, 130 interrupted.
 Config: ` + configPathForHelp() + ` (QUBE_CONFIG overrides). QUBE_NO_BROWSER=1 stops login opening a browser.
+The qb operation list is cached in ` + opsCacheDir() + ` (QUBE_CACHE_DIR overrides).
 `)
 }
 

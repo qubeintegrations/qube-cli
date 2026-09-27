@@ -8,7 +8,7 @@ import (
 
 // The command tree the completion scripts describe. Keep in step with main() and usage().
 var commandTree = map[string][]string{
-	"":            {"login", "logout", "status", "whoami", "sessions", "apps", "use", "env", "connections", "requests", "simulator", "workflows", "api", "completion", "version", "help"},
+	"":            {"login", "logout", "status", "whoami", "sessions", "apps", "use", "env", "connections", "requests", "simulator", "workflows", "qb", "api", "completion", "version", "help"},
 	"sessions":    {"revoke"},
 	"connections": {"list", "create", "show", "update", "delete", "qwc", "password", "onboarding-url"},
 	"requests":    {"list", "show", "pages", "tail", "discard"},
@@ -19,6 +19,9 @@ var commandTree = map[string][]string{
 }
 
 var globalFlags = []string{"--json", "--host", "--app", "--timeout", "--yes"}
+
+// `qb` resources and verbs come from the host's operation list, which the scripts read with
+// `qube qb --complete [resource]` (cache only, so a TAB never waits on the network).
 
 func completion(args []string) {
 	if len(args) < 1 {
@@ -38,7 +41,11 @@ _qube() {
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[1]}"
   words=%q
-  if [ "$COMP_CWORD" -ge 2 ]; then
+  if [ "$prev" = qb ] && [ "$COMP_CWORD" -eq 2 ]; then
+    words=$(qube qb --complete 2>/dev/null)
+  elif [ "$prev" = qb ] && [ "$COMP_CWORD" -eq 3 ]; then
+    words=$(qube qb --complete "${COMP_WORDS[2]}" 2>/dev/null)
+  elif [ "$COMP_CWORD" -ge 2 ]; then
     case "$prev" in
 %s    *) words="" ;;
     esac
@@ -58,6 +65,10 @@ _qube() {
   local prev="${words[2]}"
   if (( CURRENT == 2 )); then
     words_list=(%s)
+  elif [[ "$prev" == qb ]] && (( CURRENT == 3 )); then
+    words_list=(${(f)"$(qube qb --complete 2>/dev/null)"})
+  elif [[ "$prev" == qb ]] && (( CURRENT == 4 )); then
+    words_list=(${(f)"$(qube qb --complete "${words[3]}" 2>/dev/null)"})
   else
     case "$prev" in
 %s    *) words_list=() ;;
@@ -79,6 +90,8 @@ compdef _qube qube
 				fmt.Printf("complete -c qube -n '__fish_seen_subcommand_from %s' -a %s\n", cmd, sub)
 			}
 		}
+		fmt.Printf("complete -c qube -n '__fish_seen_subcommand_from qb; and test (count (commandline -opc)) -eq 2' -a '(qube qb --complete 2>/dev/null)'\n")
+		fmt.Printf("complete -c qube -n '__fish_seen_subcommand_from qb; and test (count (commandline -opc)) -eq 3' -a '(qube qb --complete (commandline -opc)[3] 2>/dev/null)'\n")
 		for _, f := range globalFlags {
 			fmt.Printf("complete -c qube -l %s\n", f[2:])
 		}
