@@ -161,19 +161,41 @@ Account:
 QuickBooks (acts as the default app, or --app):
   connections list
   connections create [--simulated] [--name N] [--redirect-url U]
-  requests list <connection> [--page N] [--page-size N]
-  requests show <id>                                        (JSON)
+  connections show <connection>                             (table, or --json)
+  connections update <connection> [--name N] [--redirect-url U]
+  connections delete <connection> [--yes]                   also discards every queued request on it
+  connections qwc <connection> [--output FILE]              the .qwc file the Web Connector needs
+  connections password <connection> [--stdin]               a new Web Connector password (never as a flag)
+  connections onboarding-url <connection>                    a fresh onboarding link
+  requests list <connection> [--page N] [--page-size N] [--state S] [--webhook-state S]
+                              [--search TEXT] [--sort inserted_at|updated_at] [--sort-direction asc|desc]
+  requests show <connection> <id>                           (JSON)
+  requests pages <connection> <id>                          every page of an iterated query (JSON)
   requests discard <connection> <id>                        withdraw request the Web Connector hasn't picked up
   requests tail <connection>                                watch a connection; Ctrl-C stops
   simulator show|reset|sync <connection>
   simulator faults <connection> [--qb closed|modal|mismatch|unexpected|ok]
                                   [--next xml|3100|3120|3140|3180|3200|ok] [--latency ms]
   workflows list
+  workflows show KEY                                        (JSON)
   workflows push FILE [--publish] [--notes TEXT]
+  workflows validate FILE                                   check a chart without pushing it
+  workflows publish KEY [--notes TEXT]
+  workflows unpublish KEY
+  workflows delete KEY [--yes]
+  workflows versions KEY [NUMBER]                           every published version, or one (JSON)
+  workflows usage KEY [--version V]                         Markdown docs for the chart's input/output
+  workflows schema                                          the chart JSON Schema
+  workflows templates [KEY]                                 shipped charts ready to install
+  workflows install KEY [--publish] [--notes TEXT] [--as NEW_KEY]
   workflows run KEY --connection C [--input JSON|@file] [--version V] [--webhook-url U]
-  workflows runs <connection> [run-id] [--events]           (a run or its events: JSON)
+  workflows runs <connection> [run-id] [--events] [--state S] [--outcome O] [--after SEQ] [--limit N]
+                                                             (a run or its events: JSON)
   workflows decide <connection> <run-id> <option> [--data JSON]
-  api METHOD PATH [--data JSON|@file|-]                     any /api/v1 or /api/v2 call with the app's key
+  workflows cancel <connection> <run-id> [--reason TEXT]
+  workflows delete-run <connection> <run-id> [--yes]        only once the run has ended
+  api METHOD PATH [--data JSON|@file|-]                     any v2 call with the app's key (PATH /connections
+                                                            means /api/v2/connections)
 
 Other:
   completion bash|zsh|fish         shell completion script (eval or save it)

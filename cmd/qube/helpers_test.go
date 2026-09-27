@@ -244,44 +244,72 @@ func TestSyncSummary(t *testing.T) {
 	}
 }
 
-// TestRequestsDiscardHitsEndpoint drives `requests discard` end to end against a fake
-// server standing in for both /api/cli (app resolution, credentials) and /api/v2, to
-// check the command reaches POST /api/v2/connections/<connection>/queued_requests/<id>/discard.
-func TestRequestsDiscardHitsEndpoint(t *testing.T) {
-	var gotMethod, gotPath string
+// newAPITest starts a fake server standing in for both /api/cli (app resolution,
+// credentials) and /api/v2: it serves /api/cli/apps and /api/cli/apps/app1/credentials for
+// one sandbox app, "app1", registers the given handlers alongside them, and returns a *ctx
+// wired up to reach it. The server is closed on test cleanup.
+func newAPITest(t *testing.T, handlers map[string]http.HandlerFunc) *ctx {
+	t.Helper()
+	return newAPITestApp(t, true, handlers)
+}
+
+// newAPITestApp is newAPITest with the app a sandbox one or a production one.
+func newAPITestApp(t *testing.T, sandbox bool, handlers map[string]http.HandlerFunc) *ctx {
+	t.Helper()
 	var srv *httptest.Server
+	app := map[string]interface{}{"id": "app1", "name": "App", "sandbox": sandbox}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/cli/apps", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"data":  []map[string]interface{}{{"id": "app1", "name": "App"}},
-			"scope": "sandbox",
+			"data":  []map[string]interface{}{app},
+			"scope": "all",
 		})
 	})
 	mux.HandleFunc("/api/cli/apps/app1/credentials", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"data": map[string]interface{}{
-				"app":          map[string]interface{}{"id": "app1", "name": "App"},
+				"app":          app,
 				"api_key":      "sk_test",
 				"api_base_url": srv.URL,
 			},
 		})
 	})
-	mux.HandleFunc("/api/v2/connections/conn_1/queued_requests/req_1/discard", func(w http.ResponseWriter, r *http.Request) {
-		gotMethod, gotPath = r.Method, r.URL.Path
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"data": map[string]interface{}{"id": "req_1", "state": "discarded"},
-		})
-	})
+	for path, h := range handlers {
+		mux.HandleFunc(path, h)
+	}
 	srv = httptest.NewServer(mux)
-	defer srv.Close()
+	t.Cleanup(srv.Close)
 
-	c := &ctx{
+	return &ctx{
 		host: srv.URL,
 		cfg:  &config.File{Sessions: map[string]config.Session{srv.URL: {Token: "qct_x"}}},
 		bg:   context.Background(),
 	}
+}
 
-	ui.JSON = false
+// setJSON sets ui.JSON for the duration of a test and resets it to false afterwards, so
+// one test's choice never leaks into the next.
+func setJSON(t *testing.T, v bool) {
+	t.Helper()
+	ui.JSON = v
+	t.Cleanup(func() { ui.JSON = false })
+}
+
+// TestRequestsDiscardHitsEndpoint drives `requests discard` end to end against a fake
+// server standing in for both /api/cli (app resolution, credentials) and /api/v2, to
+// check the command reaches POST /api/v2/connections/<connection>/queued_requests/<id>/discard.
+func TestRequestsDiscardHitsEndpoint(t *testing.T) {
+	var gotMethod, gotPath string
+	c := newAPITest(t, map[string]http.HandlerFunc{
+		"/api/v2/connections/conn_1/queued_requests/req_1/discard": func(w http.ResponseWriter, r *http.Request) {
+			gotMethod, gotPath = r.Method, r.URL.Path
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"data": map[string]interface{}{"id": "req_1", "state": "discarded"},
+			})
+		},
+	})
+
+	setJSON(t, false)
 	out := captureStdout(t, func() { c.requests([]string{"discard", "conn_1", "req_1"}) })
 
 	if gotMethod != "POST" || gotPath != "/api/v2/connections/conn_1/queued_requests/req_1/discard" {

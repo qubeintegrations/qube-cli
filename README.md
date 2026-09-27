@@ -9,15 +9,16 @@ qube apps                           # what this session may act on
 qube use "My App Dev"               # the default app for the commands below
 qube env --write .env               # QUBE_URL / QUBE_API_KEY / QUBE_WEBHOOK_SECRET, never printed
 qube connections create --simulated --name "Local dev"
-qube requests list <connection>
+qube requests list <connection> --state error
 qube requests discard <connection> <id>
 qube simulator faults <connection> --next 3100
+qube workflows install create_customer_safely --publish
 qube workflows push ./chart.json --publish
-qube api GET "/api/v2/connections/<id>/customers?max_returned=5"
+qube api GET /connections           # any v2 path, with the app's key
 ```
 
 `qube help` lists every command. Every command takes `--json` (machine output), `--host`, `--app`
-and `--timeout`, anywhere on the line.
+and `--timeout`, anywhere on the line. Every command talks to the v2 API.
 
 ## Install
 

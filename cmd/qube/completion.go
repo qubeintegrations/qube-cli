@@ -10,10 +10,10 @@ import (
 var commandTree = map[string][]string{
 	"":            {"login", "logout", "status", "whoami", "sessions", "apps", "use", "env", "connections", "requests", "simulator", "workflows", "api", "completion", "version", "help"},
 	"sessions":    {"revoke"},
-	"connections": {"list", "create"},
-	"requests":    {"list", "show", "tail", "discard"},
+	"connections": {"list", "create", "show", "update", "delete", "qwc", "password", "onboarding-url"},
+	"requests":    {"list", "show", "pages", "tail", "discard"},
 	"simulator":   {"show", "reset", "sync", "faults"},
-	"workflows":   {"list", "push", "run", "runs", "decide"},
+	"workflows":   {"list", "show", "push", "validate", "publish", "unpublish", "delete", "versions", "usage", "schema", "templates", "install", "run", "runs", "decide", "cancel", "delete-run"},
 	"api":         {"GET", "POST", "PUT", "PATCH", "DELETE"},
 	"completion":  {"bash", "zsh", "fish"},
 }

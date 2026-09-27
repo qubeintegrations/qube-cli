@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 
@@ -43,6 +45,65 @@ func parseAnywhere(fs *flag.FlagSet, args []string) {
 		}
 	}
 	_ = fs.Parse(append(flags, positional...))
+}
+
+// v2path turns a route template from the v2 spec into a request path, escaping each
+// argument into the next {param}: v2path("/connections/{connection_id}/simulator", id) is
+// "/api/v2/connections/<id>/simulator". Every hand-written command names its route this
+// way, as `cl.Do("METHOD", v2path("<template>", ...), ...)` with literal method and
+// template, so TestV2RoutesHaveCommands can check the commands against the spec.
+func v2path(template string, args ...string) string {
+	var b strings.Builder
+	b.WriteString("/api/v2")
+	rest := template
+	for _, a := range args {
+		open := strings.IndexByte(rest, '{')
+		end := strings.IndexByte(rest, '}')
+		if open < 0 || end < open {
+			panic("v2path: more arguments than {params} in " + template)
+		}
+		b.WriteString(rest[:open])
+		b.WriteString(url.PathEscape(a))
+		rest = rest[end+1:]
+	}
+	if strings.IndexByte(rest, '{') >= 0 {
+		panic("v2path: a {param} of " + template + " has no argument")
+	}
+	b.WriteString(rest)
+	return b.String()
+}
+
+// confirm guards a request that removes something, or changes a production app. With yes,
+// it returns at once. Under --json, or when stdin isn't a terminal, there is no one to ask,
+// so it fails as a usage error naming --yes. Otherwise it asks on stderr and reads one line
+// from stdin, going ahead only on "y" or "yes" (case-insensitive).
+func confirm(question string, yes bool) {
+	if yes {
+		return
+	}
+	if ui.JSON || !interactive() {
+		ui.Usage("%s Pass --yes to confirm (qube asks only in a terminal, and not under --json).", question)
+	}
+	fmt.Fprint(os.Stderr, question+" [y/N] ")
+	line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+	switch strings.ToLower(strings.TrimSpace(line)) {
+	case "y", "yes":
+	default:
+		ui.Fail("not confirmed")
+	}
+}
+
+// interactive says whether stdin is a terminal a person could answer from. /dev/null is a
+// character device too, so it is ruled out by name.
+func interactive() bool {
+	fi, err := os.Stdin.Stat()
+	if err != nil || fi.Mode()&os.ModeCharDevice == 0 {
+		return false
+	}
+	if null, err := os.Stat(os.DevNull); err == nil && os.SameFile(fi, null) {
+		return false
+	}
+	return true
 }
 
 // readJSONArg parses a JSON literal or `@file`.
