@@ -234,6 +234,10 @@ func flattenErrors(raw json.RawMessage) string {
 	if json.Unmarshal(raw, &detail) == nil && detail.Detail != "" {
 		return detail.Detail
 	}
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
 	var fields map[string]interface{}
 	if json.Unmarshal(raw, &fields) == nil && len(fields) > 0 {
 		var parts []string

@@ -1,9 +1,13 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -12,6 +16,8 @@ import (
 	"time"
 
 	"github.com/qubeintegrations/qube-cli/internal/api"
+	"github.com/qubeintegrations/qube-cli/internal/config"
+	"github.com/qubeintegrations/qube-cli/internal/ui"
 )
 
 func TestParseAnywhereFlagsAfterPositionals(t *testing.T) {
@@ -201,4 +207,144 @@ func TestParseTimeout(t *testing.T) {
 	if parseTimeout("") != api.DefaultTimeout || parseTimeout("30") != 30*time.Second || parseTimeout("2m") != 2*time.Minute {
 		t.Fatal("timeout parsing")
 	}
+}
+
+func TestDiscardConflict(t *testing.T) {
+	cases := []struct{ id, code, want string }{
+		{"req_1", "in_flight", `The Web Connector already has req_1, so it can't be discarded: it will be answered or time out.`},
+		{"req_1", "already_finished", `req_1 has already ended, so there is nothing to discard.`},
+		{"req_1", "something_else", ""},
+	}
+	for _, tc := range cases {
+		if got := discardConflict(tc.id, tc.code); got != tc.want {
+			t.Fatalf("discardConflict(%q, %q) = %q, want %q", tc.id, tc.code, got, tc.want)
+		}
+	}
+}
+
+func TestSyncSummary(t *testing.T) {
+	cases := []struct {
+		name string
+		data map[string]interface{}
+		want string
+	}{
+		{"nothing to do", map[string]interface{}{"result": "nothing_to_do"},
+			"Nothing was waiting: everything queued had already been answered."},
+		{"connection error", map[string]interface{}{"result": "connection_error"},
+			"The session failed with the connection fault that is set. The request it was sending is retried next session; while the fault lasts, QuBe spaces sessions out, up to 30 minutes apart."},
+		{"postponed", map[string]interface{}{"result": "postponed", "retry_in": float64(12)},
+			"QuickBooks couldn't be reached on the last tries, so QuBe asked the Web Connector to wait 12s. Run `qube simulator sync conn-1` again to go ahead, as clicking Update Selected again would."},
+		{"answered", map[string]interface{}{"result": "ok", "answered": float64(3), "errors": float64(1)},
+			"Session done: 3 answered, 1 failed."},
+	}
+	for _, tc := range cases {
+		if got := syncSummary(tc.data, "conn-1"); got != tc.want {
+			t.Fatalf("%s:\n got  %q\n want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// newAPITest starts a fake server standing in for both /api/cli (app resolution,
+// credentials) and /api/v2: it serves /api/cli/apps and /api/cli/apps/app1/credentials for
+// one sandbox app, "app1", registers the given handlers alongside them, and returns a *ctx
+// wired up to reach it. The server is closed on test cleanup.
+func newAPITest(t *testing.T, handlers map[string]http.HandlerFunc) *ctx {
+	t.Helper()
+	return newAPITestApp(t, true, handlers)
+}
+
+// newAPITestApp is newAPITest with the app a sandbox one or a production one.
+func newAPITestApp(t *testing.T, sandbox bool, handlers map[string]http.HandlerFunc) *ctx {
+	t.Helper()
+	var srv *httptest.Server
+	app := map[string]interface{}{"id": "app1", "name": "App", "sandbox": sandbox}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/cli/apps", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"data":  []map[string]interface{}{app},
+			"scope": "all",
+		})
+	})
+	mux.HandleFunc("/api/cli/apps/app1/credentials", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"data": map[string]interface{}{
+				"app":          app,
+				"api_key":      "sk_test",
+				"api_base_url": srv.URL,
+			},
+		})
+	})
+	for path, h := range handlers {
+		mux.HandleFunc(path, h)
+	}
+	srv = httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	return &ctx{
+		host: srv.URL,
+		cfg:  &config.File{Sessions: map[string]config.Session{srv.URL: {Token: "qct_x"}}},
+		bg:   context.Background(),
+	}
+}
+
+// setJSON sets ui.JSON for the duration of a test and resets it to false afterwards, so
+// one test's choice never leaks into the next.
+func setJSON(t *testing.T, v bool) {
+	t.Helper()
+	ui.JSON = v
+	t.Cleanup(func() { ui.JSON = false })
+}
+
+// TestRequestsDiscardHitsEndpoint drives `requests discard` end to end against a fake
+// server standing in for both /api/cli (app resolution, credentials) and /api/v2, to
+// check the command reaches POST /api/v2/connections/<connection>/queued_requests/<id>/discard.
+func TestRequestsDiscardHitsEndpoint(t *testing.T) {
+	var gotMethod, gotPath string
+	c := newAPITest(t, map[string]http.HandlerFunc{
+		"/api/v2/connections/conn_1/queued_requests/req_1/discard": func(w http.ResponseWriter, r *http.Request) {
+			gotMethod, gotPath = r.Method, r.URL.Path
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"data": map[string]interface{}{"id": "req_1", "state": "discarded"},
+			})
+		},
+	})
+
+	setJSON(t, false)
+	out := captureStdout(t, func() { c.requests([]string{"discard", "conn_1", "req_1"}) })
+
+	if gotMethod != "POST" || gotPath != "/api/v2/connections/conn_1/queued_requests/req_1/discard" {
+		t.Fatalf("server saw method=%s path=%s", gotMethod, gotPath)
+	}
+	if !strings.Contains(out, `Discarded req_1.`) {
+		t.Fatalf("output = %q", out)
+	}
+}
+
+// captureStdout runs fn with os.Stdout replaced by a pipe and returns what it wrote.
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	fn()
+	_ = w.Close()
+	os.Stdout = old
+	data, _ := io.ReadAll(r)
+	return string(data)
+}
+
+// setenv is t.Setenv, which Go 1.16 lacks.
+func setenv(t *testing.T, key, value string) {
+	old, had := os.LookupEnv(key)
+	os.Setenv(key, value)
+	t.Cleanup(func() {
+		if had {
+			os.Setenv(key, old)
+		} else {
+			os.Unsetenv(key)
+		}
+	})
 }

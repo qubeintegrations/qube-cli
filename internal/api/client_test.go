@@ -79,6 +79,7 @@ func TestErrorEnvelopes(t *testing.T) {
 		{"cli envelope", `{"error":{"code":"access_denied","message":"the login was denied"}}`, "/api/cli/token", 403, "access_denied", "the login was denied"},
 		{"phoenix detail", `{"errors":{"detail":"Not Found"}}`, "/api/v1/connections/x", 404, "", "Not Found"},
 		{"changeset", `{"errors":{"type":["is invalid"]}}`, "/api/v1/connections", 422, "", "type [is invalid]"},
+		{"discard conflict", `{"errors":"in_flight"}`, "/api/v2/connections/c/queued_requests/x/discard", 409, "", "in_flight"},
 		{"expired session", `{"error":{"code":"cli_token_expired","message":"expired"}}`, "/api/cli/me", 401, "cli_token_expired", "run `qube login` again"},
 		{"revoked session", `{"error":{"code":"unauthorized","message":"nope"}}`, "/api/cli/apps", 401, "unauthorized", "no longer valid"},
 	}
