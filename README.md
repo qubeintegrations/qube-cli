@@ -9,7 +9,7 @@ qube apps                           # what this session may act on
 qube use "My App Dev"               # the default app for the commands below
 qube env --write .env               # QUBE_URL / QUBE_API_KEY / QUBE_WEBHOOK_SECRET, never printed
 qube connections create --simulated --name "Local dev"
-qube qb customers list <connection> --max-returned 5 --webhook-url https://your-app.example/qb
+qube qb customers list <connection> --max-returned 5 --wait   # prints QuickBooks' answer
 qube qb invoices create <connection> --data @invoice.json
 qube requests list <connection> --state error
 qube requests discard <connection> <id>
@@ -35,6 +35,7 @@ qube qb customers list --help                    # its flags; --help --json prin
 qube qb customers list <connection> --name-starts-with North --max-returned 5
 qube qb customers create <connection> --name "Northwind" --bill-address '{"city": "Austin"}'
 qube qb txn-void execute <connection> --txn-id 1A2B-3C --txn-void-type Invoice
+qube qb items list <connection> --iterator --max-returned 100 --wait   # every page
 ```
 
 - Query parameters and the body's top-level fields are flags (`max_returned` is `--max-returned`). A boolean
@@ -42,8 +43,13 @@ qube qb txn-void execute <connection> --txn-id 1A2B-3C --txn-void-type Invoice
   JSON array. Any of these also takes `@file`.
 - `--data JSON|@file|-` sends a whole body. Field flags are merged over it.
 - Each operation queues a request and prints its id. QuickBooks answers when the connection's Web
-  Connector next runs. Pass `--webhook-url` to have the answer sent to you, or look it up with
-  `qube requests show <connection> <id>`.
+  Connector next runs. `--wait` waits here and prints the answer: every page of an iterated
+  query, with the exit status 1 if it failed. It waits up to 10 minutes; `--wait=30m` sets another
+  limit, and Ctrl-C stops waiting but leaves the request queued. Otherwise pass `--webhook-url` to have
+  the answer sent to you, or look it up later with `qube requests show <connection> <id>`.
+  (`--wait` polls, which suits a terminal or a script; an integration uses `webhook_url`.)
+- `qube workflows run ... --wait` and `qube workflows decide ... --wait` wait the same way, until the run
+  ends (exit 1 if it failed or was cancelled) or needs a decision.
 - The list is cached per host in `$XDG_CACHE_HOME/qube/` (`~/Library/Caches/qube/` on macOS;
   `QUBE_CACHE_DIR` overrides) and read again after a day, when it names something the list doesn't have,
   or on `qube qb --refresh`. If the host can't be reached, an older list is used, with a warning.

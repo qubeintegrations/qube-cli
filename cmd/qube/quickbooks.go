@@ -933,9 +933,11 @@ func (c *ctx) workflows(args []string) {
 		input := fs.String("input", "{}", "JSON input, or @file")
 		version := fs.String("version", "", "published | working | a version number (sandbox only)")
 		webhook := fs.String("webhook-url", "", "where to send workflow_run.* events")
+		wait := &waitFlag{}
+		fs.Var(wait, "wait", "wait until the run ends or needs a decision (--wait=30m for longer than 10m)")
 		parseAnywhere(fs, args[1:])
 		if fs.NArg() < 1 || *conn == "" {
-			ui.Usage("usage: qube workflows run KEY --connection C [--input JSON|@file] [--version V] [--webhook-url U]")
+			ui.Usage("usage: qube workflows run KEY --connection C [--input JSON|@file] [--version V] [--webhook-url U] [--wait]")
 		}
 		in := readJSONArg(*input)
 		body := map[string]interface{}{"workflow": fs.Arg(0), "input": in}
@@ -952,6 +954,11 @@ func (c *ctx) workflows(args []string) {
 			fail(err)
 		}
 		d, _ := out["data"].(map[string]interface{})
+		if wait.on {
+			ui.Info("Started run %s of %s.", str(d["id"]), str(d["workflow"]))
+			printRun(*conn, c.waitForRun(cl, *conn, d, wait.limit))
+			return
+		}
 		if ui.JSON {
 			ui.PrintJSON(d)
 			return
@@ -961,7 +968,7 @@ func (c *ctx) workflows(args []string) {
 			fmt.Printf("Watch it: %s\n", str(links["ui"]))
 		}
 		if *webhook == "" {
-			ui.Info("(no --webhook-url: `qube workflows runs %s %s` shows how it ends)", *conn, str(d["id"]))
+			ui.Info("(no --webhook-url: `qube workflows runs %s %s` shows how it ends, or --wait waits for it)", *conn, str(d["id"]))
 		}
 	case "runs":
 		fs := flag.NewFlagSet("workflows runs", flag.ExitOnError)
@@ -1030,9 +1037,11 @@ func (c *ctx) workflows(args []string) {
 	case "decide":
 		fs := flag.NewFlagSet("workflows decide", flag.ExitOnError)
 		data := fs.String("data", "{}", "JSON fields the option asks for, e.g. '{\"name\":\"New name\"}'")
+		wait := &waitFlag{}
+		fs.Var(wait, "wait", "wait until the run ends or needs another decision (--wait=30m for longer than 10m)")
 		parseAnywhere(fs, args[1:])
 		if fs.NArg() < 3 {
-			ui.Usage("usage: qube workflows decide <connection> <run-id> <option> [--data JSON]")
+			ui.Usage("usage: qube workflows decide <connection> <run-id> <option> [--data JSON] [--wait]")
 		}
 		body := map[string]interface{}{"option": fs.Arg(2), "data": readJSONArg(*data)}
 		cl, creds := c.appClient()
@@ -1042,6 +1051,10 @@ func (c *ctx) workflows(args []string) {
 			fail(err)
 		}
 		d, _ := out["data"].(map[string]interface{})
+		if wait.on {
+			printRun(fs.Arg(0), c.waitForRun(cl, fs.Arg(0), d, wait.limit))
+			return
+		}
 		if ui.JSON {
 			ui.PrintJSON(d)
 			return

@@ -51,6 +51,7 @@ func (op *Op) WriteHelp(w io.Writer, prog string) {
 		fmt.Fprintf(w, "\nBody (JSON%s): --data JSON|@file|- , and/or its fields as flags (a flag wins):\n", req)
 		writeFlags(w, body)
 	}
+	fmt.Fprintln(w, "\n  --wait[=10m]  wait here for QuickBooks' answer (every page of an iterated query) and print it")
 	fmt.Fprintf(w, "\nThe operation's full parameters and body schema, as JSON: %s %s %s --help --json\n", prog, op.Resource, op.Verb)
 }
 

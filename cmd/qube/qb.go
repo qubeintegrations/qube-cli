@@ -108,13 +108,17 @@ func (c *ctx) qb(args []string) {
 		return
 	}
 
-	call, err := op.Bind(args[2:], os.Stdin)
+	opArgs, wait, err := takeWait(args[2:])
+	if err != nil {
+		ui.Usage("%v", err)
+	}
+	call, err := op.Bind(opArgs, os.Stdin)
 	var unknown *ops.UnknownFlagError
 	if errors.As(err, &unknown) && recheck(ix, fetched) {
 		// The host may have added the flag since the list was read.
 		ix, _ = c.loadOps(src, true)
 		if op = ix.Find(resource, verb); op != nil {
-			call, err = op.Bind(args[2:], os.Stdin)
+			call, err = op.Bind(opArgs, os.Stdin)
 		}
 	}
 	if err != nil {
@@ -135,14 +139,20 @@ func (c *ctx) qb(args []string) {
 	if err := cl.Do(call.Method, call.Path, call.Query, body, &out); err != nil {
 		fail(err)
 	}
-	if ui.JSON {
-		ui.PrintJSON(out.Data)
+	d := out.Data
+	if wait.on {
+		ui.Info("Queued %s on connection %s: %s.", str(d["id"]), call.Args[0], strings.Join(strs(d["request_types"]), ", "))
+		pages, ok := c.waitForRequest(cl, call.Args[0], d, wait.limit)
+		printAnswer(pages, ok)
 		return
 	}
-	d := out.Data
+	if ui.JSON {
+		ui.PrintJSON(d)
+		return
+	}
 	fmt.Printf("Queued %s on connection %s: %s (%s).\n", str(d["id"]), call.Args[0], strings.Join(strs(d["request_types"]), ", "), str(d["state"]))
 	if call.Query.Get("webhook_url") == "" {
-		ui.Info("QuickBooks answers when the connection's Web Connector next runs. `qube requests show %s %s` shows the answer once it is in; --webhook-url has it sent to you.", call.Args[0], str(d["id"]))
+		ui.Info("QuickBooks answers when the connection's Web Connector next runs. `qube requests show %s %s` shows the answer once it is in; --wait waits for it here; --webhook-url has it sent to you.", call.Args[0], str(d["id"]))
 	}
 }
 

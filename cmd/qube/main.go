@@ -169,8 +169,9 @@ QuickBooks operations (every one the host's v2 API has, read from its OpenAPI do
   qb [--refresh]                   every resource and its verbs (--refresh reads the list again)
   qb <resource>                    a resource's operations
   qb <resource> <verb> --help      an operation's flags (--help --json: its full schema)
-  qb <resource> <verb> <connection> [--flag value...] [--data JSON|@file|-]
-                                   queue it: e.g. qb customers list <connection> --max-returned 5
+  qb <resource> <verb> <connection> [--flag value...] [--data JSON|@file|-] [--wait[=10m]]
+                                   queue it: e.g. qb customers list <connection> --max-returned 5;
+                                   --wait waits for QuickBooks' answer (every page) and prints it
 
 Connections, requests, the simulator and workflows (as the default app, or --app):
   connections list
@@ -202,10 +203,10 @@ Connections, requests, the simulator and workflows (as the default app, or --app
   workflows schema                                          the chart JSON Schema
   workflows templates [KEY]                                 shipped charts ready to install
   workflows install KEY [--publish] [--notes TEXT] [--as NEW_KEY]
-  workflows run KEY --connection C [--input JSON|@file] [--version V] [--webhook-url U]
+  workflows run KEY --connection C [--input JSON|@file] [--version V] [--webhook-url U] [--wait]
   workflows runs <connection> [run-id] [--events] [--state S] [--outcome O] [--after SEQ] [--limit N]
                                                              (a run or its events: JSON)
-  workflows decide <connection> <run-id> <option> [--data JSON]
+  workflows decide <connection> <run-id> <option> [--data JSON] [--wait]
   workflows cancel <connection> <run-id> [--reason TEXT]
   workflows delete-run <connection> <run-id>                only once the run has ended
   api METHOD PATH [--data JSON|@file|-]                     any v2 call with the app's key (PATH /connections

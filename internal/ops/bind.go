@@ -23,9 +23,9 @@ type Flag struct {
 // Flags lists the operation's flags: its query parameters, then its body's top-level fields.
 func (op *Op) Flags() []Flag {
 	var out []Flag
-	// --data and --help are the operation's own; the rest are qube's global flags, which
-	// never reach an operation. A body field by one of these names is still set via --data.
-	taken := map[string]bool{"data": true, "help": true, "json": true, "host": true, "app": true, "timeout": true, "yes": true}
+	// --data, --help and --wait are qube's own; the rest are its global flags, which never
+	// reach an operation. A body field by one of these names is still set via --data.
+	taken := map[string]bool{"data": true, "help": true, "wait": true, "json": true, "host": true, "app": true, "timeout": true, "yes": true}
 	for _, p := range op.Query {
 		name := flagName(p.Name)
 		if !taken[name] {
