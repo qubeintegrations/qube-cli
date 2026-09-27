@@ -11,7 +11,7 @@ var commandTree = map[string][]string{
 	"":            {"login", "logout", "status", "whoami", "sessions", "apps", "use", "env", "connections", "requests", "simulator", "workflows", "api", "completion", "version", "help"},
 	"sessions":    {"revoke"},
 	"connections": {"list", "create"},
-	"requests":    {"list", "show", "tail"},
+	"requests":    {"list", "show", "tail", "discard"},
 	"simulator":   {"show", "reset", "sync", "faults"},
 	"workflows":   {"list", "push", "run", "runs", "decide"},
 	"api":         {"GET", "POST", "PUT", "PATCH", "DELETE"},

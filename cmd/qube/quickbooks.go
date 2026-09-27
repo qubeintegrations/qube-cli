@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/qubeintegrations/qube-cli/internal/api"
 	"github.com/qubeintegrations/qube-cli/internal/ui"
 )
 
@@ -93,7 +95,7 @@ type requestPage struct {
 
 func (c *ctx) requests(args []string) {
 	if len(args) < 2 {
-		ui.Usage("usage: qube requests list <connection> [--page N] [--page-size N] | show <id> | tail <connection>")
+		ui.Usage("usage: qube requests list <connection> [--page N] [--page-size N] | show <id> | tail <connection> | discard <connection> <id>")
 	}
 	switch args[0] {
 	case "list":
@@ -131,6 +133,30 @@ func (c *ctx) requests(args []string) {
 			fail(err)
 		}
 		ui.PrintJSON(out.Data)
+	case "discard":
+		if len(args) < 3 {
+			ui.Usage("usage: qube requests discard <connection> <id>")
+		}
+		connection, id := args[1], args[2]
+		cl, _ := c.appClient()
+		var out struct {
+			Data map[string]interface{} `json:"data"`
+		}
+		path := "/api/v2/connections/" + url.PathEscape(connection) + "/queued_requests/" + url.PathEscape(id) + "/discard"
+		if err := cl.Do("POST", path, nil, nil, &out); err != nil {
+			var apiErr *api.Error
+			if errors.As(err, &apiErr) && apiErr.Status == 409 {
+				if msg := discardConflict(id, apiErr.Message); msg != "" {
+					ui.Fail("%s", msg)
+				}
+			}
+			fail(err)
+		}
+		if ui.JSON {
+			ui.PrintJSON(out.Data)
+			return
+		}
+		fmt.Printf("Discarded %s. It won't be sent to QuickBooks, and a webhook with state \"discarded\" goes to its webhook_url if it has one.\n", id)
 	case "tail":
 		// A developer convenience for watching a connection in a terminal. Integrations do not
 		// do this: they pass webhook_url and are told when a request is answered.
@@ -161,7 +187,20 @@ func (c *ctx) requests(args []string) {
 			}
 		}
 	default:
-		ui.Usage("usage: qube requests list <connection> | show <id> | tail <connection>")
+		ui.Usage("usage: qube requests list <connection> | show <id> | tail <connection> | discard <connection> <id>")
+	}
+}
+
+// discardConflict turns the code on a 409 from `discard` into a clear sentence, or ""
+// when the code isn't one it recognizes (the caller then shows the error as-is).
+func discardConflict(id, code string) string {
+	switch code {
+	case "in_flight":
+		return fmt.Sprintf("The Web Connector already has %s, so it can't be discarded: it will be answered or time out.", id)
+	case "already_finished":
+		return fmt.Sprintf("%s has already ended, so there is nothing to discard.", id)
+	default:
+		return ""
 	}
 }
 
@@ -220,14 +259,7 @@ func (c *ctx) simulator(args []string) {
 			ui.PrintJSON(data)
 			return
 		}
-		switch str(data["result"]) {
-		case "nothing_to_do":
-			fmt.Println("Nothing was waiting: everything queued had already been answered.")
-		case "connection_error":
-			fmt.Println("The session failed with the connection fault that is set; its requests stay queued as retryable.")
-		default:
-			fmt.Printf("Session done: %v answered, %v failed.\n", data["answered"], data["errors"])
-		}
+		fmt.Println(syncSummary(data, args[1]))
 	case "faults":
 		fs := flag.NewFlagSet("simulator faults", flag.ExitOnError)
 		qb := fs.String("qb", "", "closed | modal | mismatch | unexpected | ok  (sticky connection fault)")
@@ -307,6 +339,21 @@ func applyFaultFlags(faults map[string]interface{}, qb, next string, latency int
 		}
 	}
 	return nil
+}
+
+// syncSummary is the human-readable line for one `simulator sync` result.
+func syncSummary(data map[string]interface{}, connection string) string {
+	switch str(data["result"]) {
+	case "nothing_to_do":
+		return "Nothing was waiting: everything queued had already been answered."
+	case "connection_error":
+		return "The session failed with the connection fault that is set. The request it was sending is retried next session; while the fault lasts, QuBe spaces sessions out, up to 30 minutes apart."
+	case "postponed":
+		retryIn, _ := data["retry_in"].(float64)
+		return fmt.Sprintf("QuickBooks couldn't be reached on the last tries, so QuBe asked the Web Connector to wait %ds. Run `qube simulator sync %s` again to go ahead, as clicking Update Selected again would.", int(retryIn), connection)
+	default:
+		return fmt.Sprintf("Session done: %v answered, %v failed.", data["answered"], data["errors"])
+	}
 }
 
 func printSimulator(data map[string]interface{}) {

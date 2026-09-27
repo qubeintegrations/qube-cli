@@ -10,6 +10,7 @@ qube use "My App Dev"               # the default app for the commands below
 qube env --write .env               # QUBE_URL / QUBE_API_KEY / QUBE_WEBHOOK_SECRET, never printed
 qube connections create --simulated --name "Local dev"
 qube requests list <connection>
+qube requests discard <connection> <id>
 qube simulator faults <connection> --next 3100
 qube workflows push ./chart.json --publish
 qube api GET "/api/v2/connections/<id>/customers?max_returned=5"

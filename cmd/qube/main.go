@@ -163,6 +163,7 @@ QuickBooks (acts as the default app, or --app):
   connections create [--simulated] [--name N] [--redirect-url U]
   requests list <connection> [--page N] [--page-size N]
   requests show <id>                                        (JSON)
+  requests discard <connection> <id>                        withdraw request the Web Connector hasn't picked up
   requests tail <connection>                                watch a connection; Ctrl-C stops
   simulator show|reset|sync <connection>
   simulator faults <connection> [--qb closed|modal|mismatch|unexpected|ok]
