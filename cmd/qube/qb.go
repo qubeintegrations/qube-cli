@@ -112,22 +112,32 @@ func (c *ctx) qb(args []string) {
 	if err != nil {
 		ui.Usage("%v", err)
 	}
-	call, err := op.Bind(opArgs, os.Stdin)
+	chosen := func() string {
+		if c.connection != "" {
+			return c.connection
+		}
+		return c.defaultConnection()
+	}
+	call, err := op.Bind(opArgs, os.Stdin, chosen)
 	var unknown *ops.UnknownFlagError
 	if errors.As(err, &unknown) && recheck(ix, fetched) {
 		// The host may have added the flag since the list was read.
 		ix, _ = c.loadOps(src, true)
 		if op = ix.Find(resource, verb); op != nil {
-			call, err = op.Bind(opArgs, os.Stdin)
+			call, err = op.Bind(opArgs, os.Stdin, chosen)
 		}
 	}
 	if err != nil {
-		ui.Usage("%v (see `qube qb %s %s --help`)", err, resource, verb)
+		hint := ""
+		if c.connection == "" && strings.Contains(err.Error(), "<connection>") {
+			hint = "; `qube use --connection <id|name>` picks one for every command"
+		}
+		ui.Usage("%v (see `qube qb %s %s --help`%s)", err, resource, verb, hint)
 	}
 
-	cl, creds := c.appClient()
+	cl, app := c.appClient()
 	if call.Method != "GET" {
-		c.confirmWrite(creds, fmt.Sprintf("%s on connection %s", op.Summary, call.Args[0]))
+		c.confirmWrite(app, fmt.Sprintf("%s on connection %s", op.Summary, call.Args[0]))
 	}
 	var body interface{}
 	if call.Body != nil {

@@ -1,5 +1,5 @@
 // Package config holds what `qube login` stores: one session per host, the host to use by
-// default, and a default app per session. Tokens live in the user's config directory with
+// default, and per session a default app and a default connection for each app. Tokens live in the user's config directory with
 // 0600 permissions -- never in the repo, never printed.
 package config
 
@@ -16,10 +16,30 @@ type Session struct {
 	Token          string `json:"token"`
 	ExpiresAt      string `json:"expires_at"`
 	Scope          string `json:"scope"`
+	Access         string `json:"access,omitempty"` // read_only or read_write; empty (older sessions) is read_write
 	UserEmail      string `json:"user_email"`
 	Organization   string `json:"organization"`
 	DefaultApp     string `json:"default_app,omitempty"`
 	DefaultAppName string `json:"default_app_name,omitempty"`
+	// DefaultConnections is the connection `qube use --connection` chose, by app id.
+	DefaultConnections map[string]Connection `json:"default_connections,omitempty"`
+}
+
+// Connection names a connection: its id, and its name for messages.
+type Connection struct {
+	ID   string `json:"id"`
+	Name string `json:"name,omitempty"`
+}
+
+// ReadOnly reports whether the session was approved to look but not change anything.
+func (s Session) ReadOnly() bool { return s.Access == "read_only" }
+
+// AccessLabel is the access level in words.
+func (s Session) AccessLabel() string {
+	if s.ReadOnly() {
+		return "read-only"
+	}
+	return "read and write"
 }
 
 // Expired reports whether the server would refuse this session's token (best effort: an

@@ -8,7 +8,7 @@ qube login                          # opens the dashboard; confirm the code; san
 qube apps                           # what this session may act on
 qube use "My App Dev"               # the default app for the commands below
 qube env --write .env               # QUBE_URL / QUBE_API_KEY / QUBE_WEBHOOK_SECRET, never printed
-qube connections create --simulated --name "Local dev"
+qube connections create --simulated --name "Local dev" --use   # --use: the default connection
 qube qb customers list <connection> --max-returned 5 --wait   # prints QuickBooks' answer
 qube qb invoices create <connection> --data @invoice.json
 qube requests list <connection> --state error
@@ -16,11 +16,26 @@ qube requests discard <connection> <id>
 qube simulator faults <connection> --next 3100
 qube workflows install create_customer_safely --publish
 qube workflows push ./chart.json --publish
-qube api GET /connections           # any v2 path, with the app's key
+qube api GET /connections           # any v2 path, as the current app
 ```
 
 `qube help` lists every command. Every command takes `--json` (machine output), `--host`, `--app`,
-`--timeout` and `--yes`, anywhere on the line. Every command talks to the v2 API.
+`--connection`, `--timeout` and `--yes`, anywhere on the line. Every command talks to the v2 API.
+
+## A default connection
+
+Commands that act on a connection take it as their first argument, and may leave it out once one is
+chosen: `qube use --connection <id|name>` remembers one for the current app (`none` forgets it), and
+`--connection <id>` picks one for a single command. `qube connections create --use` makes the new
+connection the default, `qube connections list` marks it with `*`, and `qube status` shows it.
+`qube connections delete` always needs the connection named.
+
+```bash
+qube use --connection "Local dev"
+qube qb customers list --max-returned 5 --wait
+qube requests list --state error
+qube requests show <request-id>
+```
 
 ## QuickBooks operations: `qube qb`
 
@@ -91,15 +106,27 @@ eval "$(qube completion bash)"        # or zsh / fish; see `qube completion --he
 ## Why a device-code login
 
 The token a session holds is never typed, pasted or printed: `qube login` shows a code, you confirm it
-in the dashboard as yourself and choose what the session may reach (sandbox apps by default), and the
-terminal receives the token directly. That is also what makes the CLI safe to hand to an AI agent: it
+in the dashboard as yourself and choose what the session may reach (sandbox apps by default) and
+whether it may change anything (read-only or read and write), and the terminal receives the token
+directly. That is also what makes the CLI safe to hand to an AI agent: it
 can run `qube env --write .env` and `qube connections create --simulated` without ever seeing a
 secret, and you can revoke the session with `qube logout`, `qube sessions revoke <id>`, or from
 **CLI sessions** in the dashboard. Sessions expire after 30 days.
 
-An app's API key is only ever sent to the host that issued it, and only on `/api/v1` and `/api/v2`
-paths; the session token only to `/api/cli`. The OpenAPI document `qube qb` reads is public and is
-fetched without either.
+The CLI calls the API with the session token, naming the app it acts as, so revoking a session cuts
+it off at once, and the server holds a read-only session to reads. The token goes only to the host
+that issued it. The app's API key is read only for `qube env`, and only by a read-and-write session.
+The OpenAPI document `qube qb` reads is public and is fetched without the token.
+
+### Read-only sessions
+
+`qube login --read-only` asks for a session that can look but not change anything; whoever approves
+it in the dashboard sees the request preselected and has the last word. A read-only session can list
+and show everything its reach allows, run QuickBooks queries (`qube qb ... list`), validate charts
+and download a connection's QWC file. It can't create, change, delete, discard, run or answer
+anything, and it can't read an app's API key or webhook secret, so `qube env` isn't available to it.
+The server enforces this; the CLI also refuses such a command before sending it. `qube status` and
+`qube sessions` show each session's access.
 
 ## Configuration
 

@@ -265,7 +265,7 @@ func newAPITestApp(t *testing.T, sandbox bool, handlers map[string]http.HandlerF
 			"scope": "all",
 		})
 	})
-	mux.HandleFunc("/api/cli/apps/app1/credentials", func(w http.ResponseWriter, r *http.Request) {
+	credentials := func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"data": map[string]interface{}{
 				"app":          app,
@@ -273,7 +273,10 @@ func newAPITestApp(t *testing.T, sandbox bool, handlers map[string]http.HandlerF
 				"api_base_url": srv.URL,
 			},
 		})
-	})
+	}
+	if _, own := handlers["/api/cli/apps/app1/credentials"]; !own {
+		mux.HandleFunc("/api/cli/apps/app1/credentials", credentials)
+	}
 	for path, h := range handlers {
 		mux.HandleFunc(path, h)
 	}

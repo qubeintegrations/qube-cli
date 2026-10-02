@@ -38,13 +38,13 @@ func TestParseServedSpec(t *testing.T) {
 	for i := range ix.Ops {
 		op := &ix.Ops[i]
 		op.WriteHelp(ioutil.Discard, "qube qb")
-		_, err := op.Bind([]string{"conn"}, nil)
+		_, err := op.Bind([]string{"conn"}, nil, nil)
 		var usage *UsageError
 		if err != nil && !(errors.As(err, &usage) && op.BodyRequired) {
 			t.Errorf("%s %s: %v", op.Resource, op.Verb, err)
 		}
 	}
-	call, err := ix.Find("customers", "list").Bind([]string{"c1", "--name-range", `{"from":"A","to":"M"}`, "--include", "Name", "--include", "Balance", "--max-returned", "5"}, nil)
+	call, err := ix.Find("customers", "list").Bind([]string{"c1", "--name-range", `{"from":"A","to":"M"}`, "--include", "Name", "--include", "Balance", "--max-returned", "5"}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

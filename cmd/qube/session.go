@@ -27,7 +27,12 @@ func (c *ctx) cli() *api.Client {
 func (c *ctx) login(args []string) {
 	fs := flag.NewFlagSet("login", flag.ExitOnError)
 	name := fs.String("name", "", "a name for this session (default: qube on <hostname>)")
+	readOnly := fs.Bool("read-only", false, "ask for a session that can look but not change anything")
 	parseAnywhere(fs, args)
+	access := "read_write"
+	if *readOnly {
+		access = "read_only"
+	}
 	if *name == "" {
 		hn, _ := os.Hostname()
 		u, _ := user.Current()
@@ -39,12 +44,15 @@ func (c *ctx) login(args []string) {
 	}
 	cl := api.New(c.host, c.timeout)
 	cl.Ctx = c.bg
-	start, err := cl.StartDevice(*name)
+	start, err := cl.StartDevice(*name, access)
 	if err != nil {
 		fail(fmt.Errorf("starting login at %s: %w", c.host, err))
 	}
 	ui.Info("Open %s", start.VerificationURIComplete)
 	ui.Info("and confirm the code  %s  (it expires in %d minutes).", start.UserCode, start.ExpiresIn/60)
+	if *readOnly {
+		ui.Info("It asks for a read-only session; whoever approves it can change that.")
+	}
 	if ui.OpenBrowser(start.VerificationURIComplete) {
 		ui.Info("(opened in your browser)")
 	}
@@ -56,10 +64,11 @@ func (c *ctx) login(args []string) {
 	if err != nil {
 		fail(err)
 	}
-	c.cfg.Sessions[c.host] = config.Session{
-		Token: grant.Token, ExpiresAt: grant.ExpiresAt, Scope: grant.Scope,
+	s := config.Session{
+		Token: grant.Token, ExpiresAt: grant.ExpiresAt, Scope: grant.Scope, Access: grant.Access,
 		UserEmail: grant.User.Email, Organization: grant.Organization.Name,
 	}
+	c.cfg.Sessions[c.host] = s
 	c.cfg.CurrentHost = c.host
 	if err := c.cfg.Save(); err != nil {
 		fail(fmt.Errorf("saving session: %w", err))
@@ -69,10 +78,10 @@ func (c *ctx) login(args []string) {
 		reach = "every app"
 	}
 	if ui.JSON {
-		ui.PrintJSON(map[string]interface{}{"host": c.host, "user": grant.User.Email, "organization": grant.Organization.Name, "scope": grant.Scope, "expires_at": grant.ExpiresAt})
+		ui.PrintJSON(map[string]interface{}{"host": c.host, "user": grant.User.Email, "organization": grant.Organization.Name, "scope": grant.Scope, "access": accessOf(s), "expires_at": grant.ExpiresAt})
 		return
 	}
-	fmt.Printf("Logged in to %s as %s (%s, %s). Session stored in %s\n", c.host, grant.User.Email, grant.Organization.Name, reach, mustPath())
+	fmt.Printf("Logged in to %s as %s (%s, %s, %s). Session stored in %s\n", c.host, grant.User.Email, grant.Organization.Name, reach, s.AccessLabel(), mustPath())
 }
 
 // poller is what pollUntilApproved needs from the client (a seam for tests).
@@ -147,9 +156,13 @@ func (c *ctx) status() {
 			out["user"] = s.UserEmail
 			out["organization"] = s.Organization
 			out["scope"] = s.Scope
+			out["access"] = accessOf(s)
 			out["expires_at"] = s.ExpiresAt
 			out["expired"] = s.Expired()
 			out["default_app"] = map[string]string{"id": s.DefaultApp, "name": s.DefaultAppName}
+			if cn, ok := s.DefaultConnections[s.DefaultApp]; ok {
+				out["default_connection"] = cn
+			}
 		}
 		out["hosts"] = hostList(c.cfg)
 		ui.PrintJSON(out)
@@ -165,6 +178,7 @@ func (c *ctx) status() {
 	fmt.Printf("Host:         %s\n", c.host)
 	fmt.Printf("User:         %s (%s)\n", s.UserEmail, s.Organization)
 	fmt.Printf("Scope:        %s\n", s.Scope)
+	fmt.Printf("Access:       %s\n", s.AccessLabel())
 	app := "(none: run `qube use <app>`)"
 	switch {
 	case s.DefaultApp != "" && s.DefaultAppName != "":
@@ -173,6 +187,9 @@ func (c *ctx) status() {
 		app = s.DefaultApp
 	}
 	fmt.Printf("Default app:  %s\n", app)
+	if cn, ok := s.DefaultConnections[s.DefaultApp]; ok && s.DefaultApp != "" {
+		fmt.Printf("Connection:   %s\n", connectionLabel(cn))
+	}
 	exp := s.ExpiresAt
 	if s.Expired() {
 		exp += "  EXPIRED -- run `qube login`"
@@ -206,7 +223,11 @@ func (c *ctx) whoami() {
 	u, _ := out.Data["user"].(map[string]interface{})
 	o, _ := out.Data["organization"].(map[string]interface{})
 	s, _ := out.Data["session"].(map[string]interface{})
-	fmt.Printf("%s in %s on %s (scope: %v, session %q expires %v)\n", str(u["email"]), str(o["name"]), c.host, s["scope"], str(s["name"]), s["expires_at"])
+	access := "read and write"
+	if str(s["access"]) == "read_only" {
+		access = "read-only"
+	}
+	fmt.Printf("%s in %s on %s (scope: %v, %s, session %q expires %v)\n", str(u["email"]), str(o["name"]), c.host, s["scope"], access, str(s["name"]), s["expires_at"])
 }
 
 func (c *ctx) sessions(args []string) {
@@ -243,7 +264,11 @@ func (c *ctx) sessions(args []string) {
 		if s["current"] == true {
 			cur = "*"
 		}
-		rows = append(rows, []string{cur, str(s["id"]), str(s["name"]), str(s["scope"]), status, str(s["last_used_at"])})
+		access := "read-write"
+		if str(s["access"]) == "read_only" {
+			access = "read-only"
+		}
+		rows = append(rows, []string{cur, str(s["id"]), str(s["name"]), str(s["scope"]), access, status, str(s["last_used_at"])})
 	}
-	ui.Table(os.Stdout, []string{"", "ID", "NAME", "SCOPE", "STATUS", "LAST USED"}, rows, "No sessions.")
+	ui.Table(os.Stdout, []string{"", "ID", "NAME", "SCOPE", "ACCESS", "STATUS", "LAST USED"}, rows, "No sessions.")
 }

@@ -143,7 +143,7 @@ func TestBindQuery(t *testing.T) {
 	call, err := op.Bind([]string{
 		"conn 1", "--max-returned", "5", "--iterator", "--name_range", `{"from":"A","to":"M"}`,
 		"--include", "Name", "--include=Balance", "--webhook-url=https://example.test/hook",
-	}, nil)
+	}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,7 @@ func TestBindQuery(t *testing.T) {
 
 func TestBindArrayAsJSONAndBooleanFalse(t *testing.T) {
 	op := parsed(t).Find("customers", "list")
-	call, err := op.Bind([]string{"c", "--include", `["Name","Balance"]`, "--iterator=false"}, nil)
+	call, err := op.Bind([]string{"c", "--include", `["Name","Balance"]`, "--iterator=false"}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +176,7 @@ func TestBindArrayAsJSONAndBooleanFalse(t *testing.T) {
 
 func TestBindBodyFlagsWinOverData(t *testing.T) {
 	op := parsed(t).Find("customers", "create")
-	call, err := op.Bind([]string{"c", "--data", `{"name":"Old","credit_limit":1.10}`, "--name", "Acme", "--bill-address", `{"city":"Austin"}`, "--is-active=false"}, nil)
+	call, err := op.Bind([]string{"c", "--data", `{"name":"Old","credit_limit":1.10}`, "--name", "Acme", "--bill-address", `{"city":"Austin"}`, "--is-active=false"}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,11 +198,11 @@ func TestBindDataFromFileAndStdin(t *testing.T) {
 	if err := ioutil.WriteFile(file, []byte(`{"name":"From file"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	call, err := op.Bind([]string{"c", "--data", "@" + file}, nil)
+	call, err := op.Bind([]string{"c", "--data", "@" + file}, nil, nil)
 	if err != nil || string(call.Body) != `{"name":"From file"}` {
 		t.Fatalf("file: %s %v", call.Body, err)
 	}
-	call, err = op.Bind([]string{"c", "--data", "-"}, bytes.NewBufferString(`{"name":"From stdin"}`))
+	call, err = op.Bind([]string{"c", "--data", "-"}, bytes.NewBufferString(`{"name":"From stdin"}`), nil)
 	if err != nil || string(call.Body) != `{"name":"From stdin"}` {
 		t.Fatalf("stdin: %v %v", call, err)
 	}
@@ -212,7 +212,7 @@ func TestBindErrors(t *testing.T) {
 	ix := parsed(t)
 	list, create := ix.Find("customers", "list"), ix.Find("customers", "create")
 	var unknown *UnknownFlagError
-	if _, err := list.Bind([]string{"c", "--nope", "1"}, nil); !errors.As(err, &unknown) || unknown.Flag != "nope" {
+	if _, err := list.Bind([]string{"c", "--nope", "1"}, nil, nil); !errors.As(err, &unknown) || unknown.Flag != "nope" {
 		t.Fatalf("unknown flag: %v", err)
 	}
 	cases := []struct {
@@ -231,7 +231,7 @@ func TestBindErrors(t *testing.T) {
 		{create, []string{"c", "--data", "[1]", "--name", "x"}, "must be a JSON object"},
 	}
 	for _, tc := range cases {
-		_, err := tc.op.Bind(tc.args, nil)
+		_, err := tc.op.Bind(tc.args, nil, nil)
 		var usage *UsageError
 		if !errors.As(err, &usage) || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s %v: err = %v, want a usage error containing %q", tc.op.Verb, tc.args, err, tc.want)
@@ -382,5 +382,23 @@ func TestBriefKeepsWholeSentences(t *testing.T) {
 	}
 	if got, cut := brief("Short.\n\nAlso short.", 300); cut || got != "Short.\n\nAlso short." {
 		t.Fatalf("brief = %q (cut %v)", got, cut)
+	}
+}
+
+func TestBindFillsInTheChosenConnection(t *testing.T) {
+	op := parsed(t).Find("customers", "list")
+	call, err := op.Bind([]string{"--max-returned", "5"}, nil, func() string { return "conn-9" })
+	if err != nil || call.Path != "/api/v2/connections/conn-9/customers" || call.Args[0] != "conn-9" {
+		t.Fatalf("call = %+v, err = %v", call, err)
+	}
+	// a connection given on the line wins, and the chooser isn't asked
+	call, err = op.Bind([]string{"conn-1"}, nil, func() string { t.Fatal("asked"); return "" })
+	if err != nil || call.Args[0] != "conn-1" {
+		t.Fatalf("call = %+v, err = %v", call, err)
+	}
+	// nothing chosen: the usual usage error
+	var usage *UsageError
+	if _, err = op.Bind(nil, nil, func() string { return "" }); !errors.As(err, &usage) {
+		t.Fatalf("err = %v", err)
 	}
 }

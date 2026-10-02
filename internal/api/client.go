@@ -1,5 +1,6 @@
-// Package api is a thin HTTP client for QuBe Sync: the CLI endpoints (bearer session token)
-// and the v1/v2 API (basic auth with an app's API key).
+// Package api is a thin HTTP client for QuBe Sync. It sends the session token from `qube login`
+// as a bearer token: to the CLI endpoints, and to the v1/v2 API along with the app it acts as
+// (X-Qube-App), so the server can hold a read-only session to reads.
 package api
 
 import (
@@ -37,11 +38,11 @@ func userAgent() string { return "qube-cli/" + Version }
 const DefaultTimeout = 60 * time.Second
 
 type Client struct {
-	Host   string
-	Token  string // CLI session token (qct_...)
-	APIKey string // an app's API key (sk_...), for /api/v1 and /api/v2
-	HTTP   *http.Client
-	Ctx    context.Context // cancelled on Ctrl-C; every request carries it
+	Host  string
+	Token string // CLI session token (qct_...)
+	AppID string // the app /api/v1 and /api/v2 calls act as
+	HTTP  *http.Client
+	Ctx   context.Context // cancelled on Ctrl-C; every request carries it
 }
 
 // Error is a non-2xx answer, with whatever the server said.
@@ -114,17 +115,25 @@ func (c *Client) newRequest(method, path string, query url.Values, body io.Reade
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	// The session token is only ever sent to /api/cli; an app's key only to /api/v1 and /api/v2
-	// -- both on the host the credentials came from (see appClient in cmd/qube).
-	if strings.HasPrefix(path, "/api/cli") {
-		if !isDeviceFlow(path) {
-			if c.Token == "" {
-				return nil, errors.New("not logged in: run `qube login`")
-			}
-			req.Header.Set("Authorization", "Bearer "+c.Token)
+	// The session token goes only to the host that issued it (a Client is made per host, from
+	// the session stored for that host), and only to /api/cli and, with the app it acts as, to
+	// /api/v1 and /api/v2. The OpenAPI document is public and goes without it.
+	switch {
+	case isDeviceFlow(path) || path == "/api/v2/openapi.json":
+	case strings.HasPrefix(path, "/api/cli"):
+		if c.Token == "" {
+			return nil, errors.New("not logged in: run `qube login`")
 		}
-	} else if c.APIKey != "" {
-		req.SetBasicAuth(c.APIKey, "")
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	case strings.HasPrefix(path, "/api/v1/") || strings.HasPrefix(path, "/api/v2/"):
+		if c.Token == "" {
+			return nil, errors.New("not logged in: run `qube login`")
+		}
+		if c.AppID == "" {
+			return nil, errors.New("no app to act as: run `qube use <app>` or pass --app")
+		}
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+		req.Header.Set("X-Qube-App", c.AppID)
 	}
 	return req, nil
 }
@@ -215,6 +224,12 @@ func errorFrom(res *http.Response, data []byte, path string) *Error {
 		e.Code, e.Message = env.Error.Code, env.Error.Message
 		if e.Message == "" && len(env.Errors) > 0 {
 			e.Message = flattenErrors(env.Errors)
+			var coded struct {
+				Code string `json:"code"`
+			}
+			if json.Unmarshal(env.Errors, &coded) == nil {
+				e.Code = coded.Code
+			}
 		}
 	}
 	if res.StatusCode == 401 && strings.HasPrefix(path, "/api/cli") {
@@ -264,6 +279,7 @@ type TokenGrant struct {
 	Token     string `json:"token"`
 	ExpiresAt string `json:"expires_at"`
 	Scope     string `json:"scope"`
+	Access    string `json:"access"` // read_only or read_write (empty from servers before access levels)
 	User      struct {
 		Email string `json:"email"`
 		Name  string `json:"name"`
@@ -274,9 +290,11 @@ type TokenGrant struct {
 	} `json:"organization"`
 }
 
-func (c *Client) StartDevice(clientName string) (*DeviceStart, error) {
+// StartDevice begins a login asking for `access` (read_only or read_write); the person
+// approving sees it preselected and has the last word.
+func (c *Client) StartDevice(clientName, access string) (*DeviceStart, error) {
 	var out DeviceStart
-	err := c.Do("POST", "/api/cli/device", nil, map[string]string{"client_name": clientName}, &out)
+	err := c.Do("POST", "/api/cli/device", nil, map[string]string{"client_name": clientName, "access": access}, &out)
 	return &out, err
 }
 

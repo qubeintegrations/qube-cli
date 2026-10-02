@@ -31,27 +31,61 @@ func ok(w http.ResponseWriter, v interface{}) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-func TestSessionTokenOnlyGoesToCLIEndpoints(t *testing.T) {
-	srv, s := server(t, func(w http.ResponseWriter, r *http.Request) { ok(w, map[string]string{"x": "y"}) })
+// The session token goes to /api/cli, and to /api/v1 and /api/v2 with the app it acts as;
+// the public OpenAPI document and other paths get no credentials.
+func TestSessionTokenAndApp(t *testing.T) {
+	var app string
+	srv, s := server(t, func(w http.ResponseWriter, r *http.Request) {
+		app = r.Header.Get("X-Qube-App")
+		ok(w, map[string]string{"x": "y"})
+	})
 	c := New(srv.URL, 0)
 	c.Token = "qct_secret"
-	c.APIKey = "sk_key"
 
 	if err := c.Do("GET", "/api/cli/me", nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	if s.auth != "Bearer qct_secret" {
-		t.Fatalf("cli endpoint auth = %q", s.auth)
+	if s.auth != "Bearer qct_secret" || app != "" {
+		t.Fatalf("cli endpoint auth = %q, app = %q", s.auth, app)
 	}
 	if !strings.HasPrefix(s.ua, "qube-cli/") {
 		t.Fatalf("user agent = %q", s.ua)
 	}
 
-	if err := c.Do("GET", "/api/v1/connections", nil, nil, nil); err != nil {
-		t.Fatal(err)
+	if err := c.Do("GET", "/api/v2/connections", nil, nil, nil); err == nil || !strings.Contains(err.Error(), "no app") {
+		t.Fatalf("an API call with no app should fail before sending: %v", err)
 	}
-	if !strings.HasPrefix(s.auth, "Basic ") || strings.Contains(s.auth, "qct_") {
-		t.Fatalf("api endpoint auth = %q", s.auth)
+	c.AppID = "app-1"
+	for _, path := range []string{"/api/v2/connections", "/api/v1/connections"} {
+		if err := c.Do("GET", path, nil, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		if s.auth != "Bearer qct_secret" || app != "app-1" {
+			t.Fatalf("%s: auth = %q, app = %q", path, s.auth, app)
+		}
+	}
+
+	for _, path := range []string{"/api/v2/openapi.json", "/elsewhere"} {
+		if err := c.Do("GET", path, nil, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		if s.auth != "" || app != "" {
+			t.Fatalf("%s got credentials: auth = %q, app = %q", path, s.auth, app)
+		}
+	}
+}
+
+func TestErrorCodeFromAnErrorsObject(t *testing.T) {
+	srv, _ := server(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(403)
+		ok(w, map[string]interface{}{"errors": map[string]string{"detail": "This CLI session is read-only.", "code": "read_only_session"}})
+	})
+	c := New(srv.URL, 0)
+	c.Token, c.AppID = "qct_x", "app-1"
+	err := c.Do("POST", "/api/v2/connections", nil, map[string]string{}, nil)
+	var e *Error
+	if !errors.As(err, &e) || e.Status != 403 || e.Code != "read_only_session" || e.Message != "This CLI session is read-only." {
+		t.Fatalf("err = %#v", err)
 	}
 }
 
@@ -90,7 +124,7 @@ func TestErrorEnvelopes(t *testing.T) {
 				_, _ = w.Write([]byte(tc.body))
 			})
 			c := New(srv.URL, 0)
-			c.Token = "qct_x"
+			c.Token, c.AppID = "qct_x", "app-1"
 			err := c.Do("GET", tc.path, nil, nil, nil)
 			var e *Error
 			if !errors.As(err, &e) {
@@ -132,6 +166,7 @@ func TestRetryable(t *testing.T) {
 		t.Fatal("4xx is not retryable")
 	}
 	c := New("http://127.0.0.1:1", 0) // nothing listens there
+	c.Token, c.AppID = "qct_x", "app-1"
 	err := c.Do("GET", "/api/v1/connections", nil, nil, nil)
 	if !Retryable(err) {
 		t.Fatalf("a refused connection is retryable, got %v", err)
@@ -162,6 +197,7 @@ func TestCancelledContextIsReportedAsSuch(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	c := New(srv.URL, 0)
 	c.Ctx = ctx
+	c.Token, c.AppID = "qct_x", "app-1"
 	go func() { time.Sleep(20 * time.Millisecond); cancel() }()
 	err := c.Do("GET", "/api/v1/connections", nil, nil, nil)
 	if !errors.Is(err, context.Canceled) {

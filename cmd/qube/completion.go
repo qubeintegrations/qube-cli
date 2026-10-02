@@ -18,7 +18,7 @@ var commandTree = map[string][]string{
 	"completion":  {"bash", "zsh", "fish"},
 }
 
-var globalFlags = []string{"--json", "--host", "--app", "--timeout", "--yes"}
+var globalFlags = []string{"--json", "--host", "--app", "--timeout", "--yes", "--connection"}
 
 // `qb` resources and verbs come from the host's operation list, which the scripts read with
 // `qube qb --complete [resource]` (cache only, so a TAB never waits on the network).

@@ -112,8 +112,9 @@ func usagef(format string, a ...interface{}) error { return &UsageError{fmt.Spri
 
 // Bind reads `<path params...> [--flag value...] [--data JSON|@file|-]` into a Call. stdin
 // is read for `--data -` (or any `@-`). A flag may be given as --name value, --name=value,
-// or with the API's own snake_case name; a boolean alone means true.
-func (op *Op) Bind(args []string, stdin io.Reader) (*Call, error) {
+// or with the API's own snake_case name; a boolean alone means true. When the connection,
+// the first path parameter, is the one left out, `connection` (if not nil) supplies it.
+func (op *Op) Bind(args []string, stdin io.Reader, connection func() string) (*Call, error) {
 	flags := map[string]Flag{}
 	for _, f := range op.Flags() {
 		flags[f.Name] = f
@@ -166,6 +167,11 @@ func (op *Op) Bind(args []string, stdin io.Reader) (*Call, error) {
 		}
 		if err := setValue(target, f, value, hasValue, stdin); err != nil {
 			return nil, err
+		}
+	}
+	if len(positional) == len(op.PathParams)-1 && op.PathParams[0] == "connection_id" && connection != nil {
+		if id := connection(); id != "" {
+			positional = append([]string{id}, positional...)
 		}
 	}
 	if len(positional) != len(op.PathParams) {

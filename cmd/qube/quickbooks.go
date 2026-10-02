@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/qubeintegrations/qube-cli/internal/api"
+	"github.com/qubeintegrations/qube-cli/internal/config"
 	"github.com/qubeintegrations/qube-cli/internal/ui"
 )
 
@@ -38,19 +39,28 @@ func (c *ctx) connections(args []string) {
 			ui.PrintJSON(out.Data)
 			return
 		}
+		def := c.defaultConnection()
 		var rows [][]string
 		for _, cn := range out.Data {
-			rows = append(rows, []string{str(cn["id"]), str(cn["name"]), str(cn["type"]), str(cn["last_connected_at"]), str(cn["quickbooks_product_name"])})
+			mark := ""
+			if str(cn["id"]) == def {
+				mark = "*"
+			}
+			rows = append(rows, []string{mark, str(cn["id"]), str(cn["name"]), str(cn["type"]), str(cn["last_connected_at"]), str(cn["quickbooks_product_name"])})
 		}
-		ui.Table(os.Stdout, []string{"ID", "NAME", "TYPE", "LAST CONNECTED", "QUICKBOOKS"}, rows, "No connections yet: `qube connections create --simulated` makes one that is connected at once.")
+		ui.Table(os.Stdout, []string{"", "ID", "NAME", "TYPE", "LAST CONNECTED", "QUICKBOOKS"}, rows, "No connections yet: `qube connections create --simulated` makes one that is connected at once.")
+		if def == "" && len(rows) > 0 {
+			ui.Info("(`qube use --connection <id|name>` picks one for commands that don't name one)")
+		}
 	case "create":
 		fs := flag.NewFlagSet("connections create", flag.ExitOnError)
 		simulated := fs.Bool("simulated", false, "a fake QuickBooks answered by QuBe Sync (no Windows machine)")
 		name := fs.String("name", "", "connection name")
 		redirect := fs.String("redirect-url", "", "where onboarding sends the user back (no query string: QuBe adds ?connection_id=...&state=...)")
+		use := fs.Bool("use", false, "make it the default connection (as `qube use --connection` would)")
 		parseAnywhere(fs, args)
-		cl, creds := c.appClient()
-		c.confirmWrite(creds, "Create a connection")
+		cl, app := c.appClient()
+		c.confirmWrite(app, "Create a connection")
 		body := map[string]string{}
 		if *simulated {
 			body["type"] = "simulated"
@@ -67,6 +77,9 @@ func (c *ctx) connections(args []string) {
 		if err := cl.Do("POST", v2path("/connections"), nil, body, &out); err != nil {
 			fail(err)
 		}
+		if *use {
+			c.setDefaultConnection(config.Connection{ID: str(out.Data["id"]), Name: str(out.Data["name"])})
+		}
 		if ui.JSON {
 			ui.PrintJSON(out.Data)
 			return
@@ -82,14 +95,12 @@ func (c *ctx) connections(args []string) {
 	case "show":
 		fs := flag.NewFlagSet("connections show", flag.ExitOnError)
 		parseAnywhere(fs, args)
-		if fs.NArg() < 1 {
-			ui.Usage("usage: qube connections show <connection>")
-		}
+		conn, _ := c.connectionAnd(fs.Args(), 0, "qube connections show [connection]")
 		cl, _ := c.appClient()
 		var out struct {
 			Data map[string]interface{} `json:"data"`
 		}
-		if err := cl.Do("GET", v2path("/connections/{connection_id}", fs.Arg(0)), nil, nil, &out); err != nil {
+		if err := cl.Do("GET", v2path("/connections/{connection_id}", conn), nil, nil, &out); err != nil {
 			fail(err)
 		}
 		if ui.JSON {
@@ -116,9 +127,7 @@ func (c *ctx) connections(args []string) {
 		name := fs.String("name", "", "connection name")
 		redirect := fs.String("redirect-url", "", "where onboarding sends the user back (no query string: QuBe adds ?connection_id=...&state=...)")
 		parseAnywhere(fs, args)
-		if fs.NArg() < 1 {
-			ui.Usage("usage: qube connections update <connection> [--name N] [--redirect-url U]")
-		}
+		conn, _ := c.connectionAnd(fs.Args(), 0, "qube connections update [connection] [--name N] [--redirect-url U]")
 		body := map[string]string{}
 		if *name != "" {
 			body["name"] = *name
@@ -129,12 +138,12 @@ func (c *ctx) connections(args []string) {
 		if len(body) == 0 {
 			ui.Usage("usage: qube connections update <connection> [--name N] [--redirect-url U]")
 		}
-		cl, creds := c.appClient()
-		c.confirmWrite(creds, "Update connection "+fs.Arg(0))
+		cl, app := c.appClient()
+		c.confirmWrite(app, "Update connection "+conn)
 		var out struct {
 			Data map[string]interface{} `json:"data"`
 		}
-		if err := cl.Do("PUT", v2path("/connections/{connection_id}", fs.Arg(0)), nil, body, &out); err != nil {
+		if err := cl.Do("PUT", v2path("/connections/{connection_id}", conn), nil, body, &out); err != nil {
 			fail(err)
 		}
 		if ui.JSON {
@@ -145,38 +154,35 @@ func (c *ctx) connections(args []string) {
 	case "delete":
 		fs := flag.NewFlagSet("connections delete", flag.ExitOnError)
 		parseAnywhere(fs, args)
-		if fs.NArg() < 1 {
-			ui.Usage("usage: qube connections delete <connection> [--yes]")
-		}
-		id := fs.Arg(0)
-		cl, creds := c.appClient()
+		id := c.explicitConnection(fs.Args(), "qube connections delete <connection> [--yes]")
+		cl, app := c.appClient()
 		var show struct {
 			Data map[string]interface{} `json:"data"`
 		}
 		if err := cl.Do("GET", v2path("/connections/{connection_id}", id), nil, nil, &show); err != nil {
 			fail(err)
 		}
-		c.confirmDelete(creds, fmt.Sprintf("Remove connection %q (%s) and every queued request on it?", str(show.Data["name"]), id))
+		c.confirmDelete(app, fmt.Sprintf("Remove connection %q (%s) and every queued request on it?", str(show.Data["name"]), id))
 		if err := cl.Do("DELETE", v2path("/connections/{connection_id}", id), nil, nil, nil); err != nil {
 			fail(err)
 		}
 		if ui.JSON {
+			c.forgetConnection(id)
 			ui.PrintJSON(map[string]interface{}{"id": id, "deleted": true})
 			return
 		}
+		c.forgetConnection(id)
 		fmt.Printf("Removed connection %s.\n", id)
 	case "qwc":
 		fs := flag.NewFlagSet("connections qwc", flag.ExitOnError)
 		output := fs.String("output", "", "write the .qwc file here instead of stdout")
 		parseAnywhere(fs, args)
-		if fs.NArg() < 1 {
-			ui.Usage("usage: qube connections qwc <connection> [--output FILE]")
-		}
+		conn, _ := c.connectionAnd(fs.Args(), 0, "qube connections qwc [connection] [--output FILE]")
 		cl, _ := c.appClient()
 		var out struct {
 			QWC string `json:"qwc"`
 		}
-		if err := cl.Do("POST", v2path("/connections/{connection_id}/qwc", fs.Arg(0)), nil, nil, &out); err != nil {
+		if err := cl.Do("POST", v2path("/connections/{connection_id}/qwc", conn), nil, nil, &out); err != nil {
 			fail(err)
 		}
 		if *output == "" {
@@ -199,11 +205,9 @@ func (c *ctx) connections(args []string) {
 		fs := flag.NewFlagSet("connections password", flag.ExitOnError)
 		stdin := fs.Bool("stdin", false, "read the new password from stdin instead of letting QuBe generate one")
 		parseAnywhere(fs, args)
-		if fs.NArg() < 1 {
-			ui.Usage("usage: qube connections password <connection> [--stdin]")
-		}
-		cl, creds := c.appClient()
-		c.confirmWrite(creds, "Replace the Web Connector password of connection "+fs.Arg(0))
+		conn, _ := c.connectionAnd(fs.Args(), 0, "qube connections password [connection] [--stdin]")
+		cl, app := c.appClient()
+		c.confirmWrite(app, "Replace the Web Connector password of connection "+conn)
 		var body interface{}
 		if *stdin {
 			raw, err := io.ReadAll(os.Stdin)
@@ -219,7 +223,7 @@ func (c *ctx) connections(args []string) {
 		var out struct {
 			Data map[string]interface{} `json:"data"`
 		}
-		if err := cl.Do("POST", v2path("/connections/{connection_id}/password", fs.Arg(0)), nil, body, &out); err != nil {
+		if err := cl.Do("POST", v2path("/connections/{connection_id}/password", conn), nil, body, &out); err != nil {
 			fail(err)
 		}
 		if ui.JSON {
@@ -231,15 +235,13 @@ func (c *ctx) connections(args []string) {
 	case "onboarding-url":
 		fs := flag.NewFlagSet("connections onboarding-url", flag.ExitOnError)
 		parseAnywhere(fs, args)
-		if fs.NArg() < 1 {
-			ui.Usage("usage: qube connections onboarding-url <connection>")
-		}
-		cl, creds := c.appClient()
-		c.confirmWrite(creds, "Replace the onboarding link of connection "+fs.Arg(0))
+		conn, _ := c.connectionAnd(fs.Args(), 0, "qube connections onboarding-url [connection]")
+		cl, app := c.appClient()
+		c.confirmWrite(app, "Replace the onboarding link of connection "+conn)
 		var out struct {
 			Data map[string]interface{} `json:"data"`
 		}
-		if err := cl.Do("POST", v2path("/connections/{connection_id}/onboarding_url", fs.Arg(0)), nil, nil, &out); err != nil {
+		if err := cl.Do("POST", v2path("/connections/{connection_id}/onboarding_url", conn), nil, nil, &out); err != nil {
 			fail(err)
 		}
 		if ui.JSON {
@@ -256,7 +258,7 @@ func (c *ctx) connections(args []string) {
 			fmt.Println(str(links["onboarding"]))
 		}
 	default:
-		ui.Usage("usage: qube connections list | create [--simulated] [--name N] [--redirect-url U] | show <connection> | update <connection> [--name N] [--redirect-url U] | delete <connection> [--yes] | qwc <connection> [--output FILE] | password <connection> [--stdin] | onboarding-url <connection>")
+		ui.Usage("usage: qube connections list | create [--simulated] [--name N] [--redirect-url U] [--use] | show [connection] | update [connection] [--name N] [--redirect-url U] | delete <connection> [--yes] | qwc [connection] [--output FILE] | password [connection] [--stdin] | onboarding-url [connection]")
 	}
 }
 
@@ -271,8 +273,8 @@ type requestPage struct {
 }
 
 func (c *ctx) requests(args []string) {
-	if len(args) < 2 {
-		ui.Usage("usage: qube requests list <connection> [flags] | show <connection> <id> | pages <connection> <id> | tail <connection> | discard <connection> <id>")
+	if len(args) < 1 {
+		ui.Usage("usage: qube requests list [connection] [flags] | show [connection] <id> | pages [connection] <id> | tail [connection] | discard [connection] <id>")
 	}
 	switch args[0] {
 	case "list":
@@ -285,9 +287,7 @@ func (c *ctx) requests(args []string) {
 		sortBy := fs.String("sort", "", "inserted_at|updated_at")
 		sortDir := fs.String("sort-direction", "", "asc|desc")
 		parseAnywhere(fs, args[1:])
-		if fs.NArg() < 1 {
-			ui.Usage("usage: qube requests list <connection> [--page N] [--page-size N] [--state S] [--webhook-state S] [--search TEXT] [--sort inserted_at|updated_at] [--sort-direction asc|desc]")
-		}
+		conn, _ := c.connectionAnd(fs.Args(), 0, "qube requests list [connection] [--page N] [--page-size N] [--state S] [--webhook-state S] [--search TEXT] [--sort inserted_at|updated_at] [--sort-direction asc|desc]")
 		cl, _ := c.appClient()
 		var out requestPage
 		q := url.Values{"page": {strconv.Itoa(*page)}, "page_size": {strconv.Itoa(*size)}}
@@ -306,7 +306,7 @@ func (c *ctx) requests(args []string) {
 		if *sortDir != "" {
 			q.Set("sort_direction", *sortDir)
 		}
-		if err := cl.Do("GET", v2path("/connections/{connection_id}/queued_requests", fs.Arg(0)), q, nil, &out); err != nil {
+		if err := cl.Do("GET", v2path("/connections/{connection_id}/queued_requests", conn), q, nil, &out); err != nil {
 			fail(err)
 		}
 		if ui.JSON {
@@ -322,36 +322,30 @@ func (c *ctx) requests(args []string) {
 			ui.Info("page %d of %d (--page N for the others)", out.Meta.Page, out.Meta.TotalPages)
 		}
 	case "show":
-		if len(args) < 3 {
-			ui.Usage("usage: qube requests show <connection> <id> (a request is addressed through its connection)")
-		}
+		conn, rest := c.connectionAnd(args[1:], 1, "qube requests show [connection] <id>")
 		cl, _ := c.appClient()
 		var out struct {
 			Data map[string]interface{} `json:"data"`
 		}
-		if err := cl.Do("GET", v2path("/connections/{connection_id}/queued_requests/{id}", args[1], args[2]), nil, nil, &out); err != nil {
+		if err := cl.Do("GET", v2path("/connections/{connection_id}/queued_requests/{id}", conn, rest[0]), nil, nil, &out); err != nil {
 			fail(err)
 		}
 		ui.PrintJSON(out.Data)
 	case "pages":
-		if len(args) < 3 {
-			ui.Usage("usage: qube requests pages <connection> <id>")
-		}
+		conn, rest := c.connectionAnd(args[1:], 1, "qube requests pages [connection] <id>")
 		cl, _ := c.appClient()
 		var out struct {
 			Data interface{} `json:"data"`
 		}
-		if err := cl.Do("GET", v2path("/connections/{connection_id}/queued_requests/{id}/pages", args[1], args[2]), nil, nil, &out); err != nil {
+		if err := cl.Do("GET", v2path("/connections/{connection_id}/queued_requests/{id}/pages", conn, rest[0]), nil, nil, &out); err != nil {
 			fail(err)
 		}
 		ui.PrintJSON(out.Data)
 	case "discard":
-		if len(args) < 3 {
-			ui.Usage("usage: qube requests discard <connection> <id>")
-		}
-		connection, id := args[1], args[2]
-		cl, creds := c.appClient()
-		c.confirmWrite(creds, "Discard request "+id)
+		connection, rest := c.connectionAnd(args[1:], 1, "qube requests discard [connection] <id>")
+		id := rest[0]
+		cl, app := c.appClient()
+		c.confirmWrite(app, "Discard request "+id)
 		var out struct {
 			Data map[string]interface{} `json:"data"`
 		}
@@ -372,12 +366,13 @@ func (c *ctx) requests(args []string) {
 	case "tail":
 		// A developer convenience for watching a connection in a terminal. Integrations do not
 		// do this: they pass webhook_url and are told when a request is answered.
+		conn, _ := c.connectionAnd(args[1:], 0, "qube requests tail [connection]")
 		cl, _ := c.appClient()
 		seen := map[string]string{}
-		ui.Info("watching %s (Ctrl-C stops)", args[1])
+		ui.Info("watching %s (Ctrl-C stops)", conn)
 		for {
 			var out requestPage
-			if err := cl.Do("GET", v2path("/connections/{connection_id}/queued_requests", args[1]), url.Values{"page_size": {"10"}}, nil, &out); err != nil {
+			if err := cl.Do("GET", v2path("/connections/{connection_id}/queued_requests", conn), url.Values{"page_size": {"10"}}, nil, &out); err != nil {
 				fail(err)
 			}
 			for i := len(out.Data) - 1; i >= 0; i-- {
@@ -399,7 +394,7 @@ func (c *ctx) requests(args []string) {
 			}
 		}
 	default:
-		ui.Usage("usage: qube requests list <connection> [flags] | show <connection> <id> | pages <connection> <id> | tail <connection> | discard <connection> <id>")
+		ui.Usage("usage: qube requests list [connection] [flags] | show [connection] <id> | pages [connection] <id> | tail [connection] | discard [connection] <id>")
 	}
 }
 
@@ -434,13 +429,19 @@ func short(id string) string {
 // ---------------------------------------------------------------- simulator
 
 func (c *ctx) simulator(args []string) {
-	if len(args) < 2 {
-		ui.Usage("usage: qube simulator show|reset|sync|faults <connection> [flags]")
+	if len(args) < 1 {
+		ui.Usage("usage: qube simulator show|reset|sync|faults [connection] [flags]")
 	}
-	cl, creds := c.appClient()
-	connection := args[1]
+	// faults' flags, read up front so the connection can come before or after them
+	fs := flag.NewFlagSet("simulator "+args[0], flag.ExitOnError)
+	qb := fs.String("qb", "", "closed | modal | mismatch | unexpected | ok  (sticky connection fault)")
+	next := fs.String("next", "", "xml | 3100 | 3120 | 3140 | 3180 | 3200 | ok  (one-shot, next request)")
+	latency := fs.Int("latency", -1, "milliseconds QuickBooks thinks before each answer")
+	parseAnywhere(fs, args[1:])
+	connection, _ := c.connectionAnd(fs.Args(), 0, "qube simulator "+args[0]+" [connection]")
+	cl, app := c.appClient()
 	if args[0] != "show" {
-		c.confirmWrite(creds, "Change the simulator of connection "+connection)
+		c.confirmWrite(app, "Change the simulator of connection "+connection)
 	}
 	var out map[string]interface{}
 	switch args[0] {
@@ -476,11 +477,6 @@ func (c *ctx) simulator(args []string) {
 		}
 		fmt.Println(syncSummary(data, connection))
 	case "faults":
-		fs := flag.NewFlagSet("simulator faults", flag.ExitOnError)
-		qb := fs.String("qb", "", "closed | modal | mismatch | unexpected | ok  (sticky connection fault)")
-		next := fs.String("next", "", "xml | 3100 | 3120 | 3140 | 3180 | 3200 | ok  (one-shot, next request)")
-		latency := fs.Int("latency", -1, "milliseconds QuickBooks thinks before each answer")
-		parseAnywhere(fs, args[2:])
 		if err := cl.Do("GET", v2path("/connections/{connection_id}/simulator", connection), nil, nil, &out); err != nil {
 			fail(err)
 		}
@@ -509,7 +505,7 @@ func (c *ctx) simulator(args []string) {
 			fmt.Println("Queue a request (or `qube simulator sync`) to see them.")
 		}
 	default:
-		ui.Usage("usage: qube simulator show|reset|sync|faults <connection>")
+		ui.Usage("usage: qube simulator show|reset|sync|faults [connection]")
 	}
 }
 
@@ -661,8 +657,8 @@ func (c *ctx) workflows(args []string) {
 		if err != nil {
 			ui.Fail("%s: %v", fs.Arg(0), err)
 		}
-		cl, creds := c.appClient()
-		c.confirmWrite(creds, "Push workflow "+key+publishing(*publish))
+		cl, app := c.appClient()
+		c.confirmWrite(app, "Push workflow "+key+publishing(*publish))
 		var out map[string]interface{}
 		if err := cl.Do("PUT", v2path("/workflows/{key}", key), nil, body, &out); err != nil {
 			fail(err)
@@ -734,8 +730,8 @@ func (c *ctx) workflows(args []string) {
 		if *notes != "" {
 			body = map[string]string{"notes": *notes}
 		}
-		cl, creds := c.appClient()
-		c.confirmWrite(creds, "Publish workflow "+fs.Arg(0))
+		cl, app := c.appClient()
+		c.confirmWrite(app, "Publish workflow "+fs.Arg(0))
 		var out struct {
 			Data map[string]interface{} `json:"data"`
 		}
@@ -751,8 +747,8 @@ func (c *ctx) workflows(args []string) {
 		if len(args) < 2 {
 			ui.Usage("usage: qube workflows unpublish KEY")
 		}
-		cl, creds := c.appClient()
-		c.confirmWrite(creds, "Unpublish workflow "+args[1])
+		cl, app := c.appClient()
+		c.confirmWrite(app, "Unpublish workflow "+args[1])
 		var out struct {
 			Data map[string]interface{} `json:"data"`
 		}
@@ -771,8 +767,8 @@ func (c *ctx) workflows(args []string) {
 			ui.Usage("usage: qube workflows delete KEY [--yes]")
 		}
 		key := fs.Arg(0)
-		cl, creds := c.appClient()
-		c.confirmDelete(creds, fmt.Sprintf("Delete workflow %q and its published versions?", key))
+		cl, app := c.appClient()
+		c.confirmDelete(app, fmt.Sprintf("Delete workflow %q and its published versions?", key))
 		if err := cl.Do("DELETE", v2path("/workflows/{key}", key), nil, nil, nil); err != nil {
 			fail(err)
 		}
@@ -901,8 +897,8 @@ func (c *ctx) workflows(args []string) {
 		if len(fields) > 0 {
 			body = fields
 		}
-		cl, creds := c.appClient()
-		c.confirmWrite(creds, "Install template "+fs.Arg(0)+publishing(*publish))
+		cl, app := c.appClient()
+		c.confirmWrite(app, "Install template "+fs.Arg(0)+publishing(*publish))
 		var out struct {
 			Data      map[string]interface{} `json:"data"`
 			Installed []string               `json:"installed"`
@@ -929,16 +925,16 @@ func (c *ctx) workflows(args []string) {
 		}
 	case "run":
 		fs := flag.NewFlagSet("workflows run", flag.ExitOnError)
-		conn := fs.String("connection", "", "connection id")
 		input := fs.String("input", "{}", "JSON input, or @file")
 		version := fs.String("version", "", "published | working | a version number (sandbox only)")
 		webhook := fs.String("webhook-url", "", "where to send workflow_run.* events")
 		wait := &waitFlag{}
 		fs.Var(wait, "wait", "wait until the run ends or needs a decision (--wait=30m for longer than 10m)")
 		parseAnywhere(fs, args[1:])
-		if fs.NArg() < 1 || *conn == "" {
-			ui.Usage("usage: qube workflows run KEY --connection C [--input JSON|@file] [--version V] [--webhook-url U] [--wait]")
+		if fs.NArg() != 1 {
+			ui.Usage("usage: qube workflows run KEY [--connection C] [--input JSON|@file] [--version V] [--webhook-url U] [--wait]")
 		}
+		conn := c.chosenConnection("qube workflows run KEY --connection C")
 		in := readJSONArg(*input)
 		body := map[string]interface{}{"workflow": fs.Arg(0), "input": in}
 		if *version != "" {
@@ -947,16 +943,16 @@ func (c *ctx) workflows(args []string) {
 		if *webhook != "" {
 			body["webhook_url"] = *webhook
 		}
-		cl, creds := c.appClient()
-		c.confirmWrite(creds, fmt.Sprintf("Run workflow %s on connection %s", fs.Arg(0), *conn))
+		cl, app := c.appClient()
+		c.confirmWrite(app, fmt.Sprintf("Run workflow %s on connection %s", fs.Arg(0), conn))
 		var out map[string]interface{}
-		if err := cl.Do("POST", v2path("/connections/{connection_id}/workflow_runs", *conn), nil, body, &out); err != nil {
+		if err := cl.Do("POST", v2path("/connections/{connection_id}/workflow_runs", conn), nil, body, &out); err != nil {
 			fail(err)
 		}
 		d, _ := out["data"].(map[string]interface{})
 		if wait.on {
 			ui.Info("Started run %s of %s.", str(d["id"]), str(d["workflow"]))
-			printRun(*conn, c.waitForRun(cl, *conn, d, wait.limit))
+			printRun(conn, c.waitForRun(cl, conn, d, wait.limit))
 			return
 		}
 		if ui.JSON {
@@ -968,7 +964,7 @@ func (c *ctx) workflows(args []string) {
 			fmt.Printf("Watch it: %s\n", str(links["ui"]))
 		}
 		if *webhook == "" {
-			ui.Info("(no --webhook-url: `qube workflows runs %s %s` shows how it ends, or --wait waits for it)", *conn, str(d["id"]))
+			ui.Info("(no --webhook-url: `qube workflows runs %s %s` shows how it ends, or --wait waits for it)", conn, str(d["id"]))
 		}
 	case "runs":
 		fs := flag.NewFlagSet("workflows runs", flag.ExitOnError)
@@ -978,13 +974,24 @@ func (c *ctx) workflows(args []string) {
 		after := fs.String("after", "", "resume the event stream after this sequence number")
 		limit := fs.Int("limit", 0, "max events to return")
 		parseAnywhere(fs, args[1:])
-		if fs.NArg() < 1 {
-			ui.Usage("usage: qube workflows runs <connection> [run-id] [--events] [--state S] [--outcome O] [--after SEQ] [--limit N]")
+		// Both are optional: a lone argument is the run when a connection is chosen
+		// (--connection, or `qube use --connection`), and the connection otherwise.
+		var connection, run string
+		switch {
+		case fs.NArg() == 2:
+			connection, run = fs.Arg(0), fs.Arg(1)
+		case fs.NArg() == 1 && (c.connection != "" || c.defaultConnection() != ""):
+			connection, run = c.chosenConnection(""), fs.Arg(0)
+		case fs.NArg() == 1:
+			connection = fs.Arg(0)
+		case fs.NArg() == 0:
+			connection = c.chosenConnection("qube workflows runs [connection] [run-id] [--events]")
+		default:
+			ui.Usage("usage: qube workflows runs [connection] [run-id] [--events] [--state S] [--outcome O] [--after SEQ] [--limit N]")
 		}
 		cl, _ := c.appClient()
-		connection := fs.Arg(0)
 		switch {
-		case fs.NArg() >= 2 && *events:
+		case run != "" && *events:
 			q := url.Values{}
 			if *after != "" {
 				q.Set("after", *after)
@@ -993,7 +1000,7 @@ func (c *ctx) workflows(args []string) {
 				q.Set("limit", strconv.Itoa(*limit))
 			}
 			var out map[string]interface{}
-			if err := cl.Do("GET", v2path("/connections/{connection_id}/workflow_runs/{run_id}/events", connection, fs.Arg(1)), q, nil, &out); err != nil {
+			if err := cl.Do("GET", v2path("/connections/{connection_id}/workflow_runs/{run_id}/events", connection, run), q, nil, &out); err != nil {
 				fail(err)
 			}
 			ui.PrintJSON(out)
@@ -1002,11 +1009,11 @@ func (c *ctx) workflows(args []string) {
 					ui.Info("more: --after %v", na)
 				}
 			}
-		case fs.NArg() >= 2:
+		case run != "":
 			var out struct {
 				Data map[string]interface{} `json:"data"`
 			}
-			if err := cl.Do("GET", v2path("/connections/{connection_id}/workflow_runs/{run_id}", connection, fs.Arg(1)), nil, nil, &out); err != nil {
+			if err := cl.Do("GET", v2path("/connections/{connection_id}/workflow_runs/{run_id}", connection, run), nil, nil, &out); err != nil {
 				fail(err)
 			}
 			ui.PrintJSON(out.Data)
@@ -1040,43 +1047,40 @@ func (c *ctx) workflows(args []string) {
 		wait := &waitFlag{}
 		fs.Var(wait, "wait", "wait until the run ends or needs another decision (--wait=30m for longer than 10m)")
 		parseAnywhere(fs, args[1:])
-		if fs.NArg() < 3 {
-			ui.Usage("usage: qube workflows decide <connection> <run-id> <option> [--data JSON] [--wait]")
-		}
-		body := map[string]interface{}{"option": fs.Arg(2), "data": readJSONArg(*data)}
-		cl, creds := c.appClient()
-		c.confirmWrite(creds, fmt.Sprintf("Answer %q on run %s", fs.Arg(2), fs.Arg(1)))
+		conn, rest := c.connectionAnd(fs.Args(), 2, "qube workflows decide [connection] <run-id> <option> [--data JSON] [--wait]")
+		run, option := rest[0], rest[1]
+		body := map[string]interface{}{"option": option, "data": readJSONArg(*data)}
+		cl, app := c.appClient()
+		c.confirmWrite(app, fmt.Sprintf("Answer %q on run %s", option, run))
 		var out map[string]interface{}
-		if err := cl.Do("POST", v2path("/connections/{connection_id}/workflow_runs/{run_id}/decisions", fs.Arg(0), fs.Arg(1)), nil, body, &out); err != nil {
+		if err := cl.Do("POST", v2path("/connections/{connection_id}/workflow_runs/{run_id}/decisions", conn, run), nil, body, &out); err != nil {
 			fail(err)
 		}
 		d, _ := out["data"].(map[string]interface{})
 		if wait.on {
-			printRun(fs.Arg(0), c.waitForRun(cl, fs.Arg(0), d, wait.limit))
+			printRun(conn, c.waitForRun(cl, conn, d, wait.limit))
 			return
 		}
 		if ui.JSON {
 			ui.PrintJSON(d)
 			return
 		}
-		fmt.Printf("Decided %q on run %s: now %s\n", fs.Arg(2), str(d["id"]), str(d["state"]))
+		fmt.Printf("Decided %q on run %s: now %s\n", option, str(d["id"]), str(d["state"]))
 	case "cancel":
 		fs := flag.NewFlagSet("workflows cancel", flag.ExitOnError)
 		reason := fs.String("reason", "", "why the run is being cancelled")
 		parseAnywhere(fs, args[1:])
-		if fs.NArg() < 2 {
-			ui.Usage("usage: qube workflows cancel <connection> <run-id> [--reason TEXT]")
-		}
+		conn, rest := c.connectionAnd(fs.Args(), 1, "qube workflows cancel [connection] <run-id> [--reason TEXT]")
 		var body interface{}
 		if *reason != "" {
 			body = map[string]string{"reason": *reason}
 		}
-		cl, creds := c.appClient()
-		c.confirmWrite(creds, "Cancel run "+fs.Arg(1))
+		cl, app := c.appClient()
+		c.confirmWrite(app, "Cancel run "+rest[0])
 		var out struct {
 			Data map[string]interface{} `json:"data"`
 		}
-		if err := cl.Do("POST", v2path("/connections/{connection_id}/workflow_runs/{run_id}/cancel", fs.Arg(0), fs.Arg(1)), nil, body, &out); err != nil {
+		if err := cl.Do("POST", v2path("/connections/{connection_id}/workflow_runs/{run_id}/cancel", conn, rest[0]), nil, body, &out); err != nil {
 			fail(err)
 		}
 		if ui.JSON {
@@ -1087,13 +1091,11 @@ func (c *ctx) workflows(args []string) {
 	case "delete-run":
 		fs := flag.NewFlagSet("workflows delete-run", flag.ExitOnError)
 		parseAnywhere(fs, args[1:])
-		if fs.NArg() < 2 {
-			ui.Usage("usage: qube workflows delete-run <connection> <run-id> [--yes]")
-		}
-		id := fs.Arg(1)
-		cl, creds := c.appClient()
-		c.confirmDelete(creds, fmt.Sprintf("Delete run %s and its step history?", id))
-		if err := cl.Do("DELETE", v2path("/connections/{connection_id}/workflow_runs/{run_id}", fs.Arg(0), id), nil, nil, nil); err != nil {
+		conn, rest := c.connectionAnd(fs.Args(), 1, "qube workflows delete-run [connection] <run-id> [--yes]")
+		id := rest[0]
+		cl, app := c.appClient()
+		c.confirmDelete(app, fmt.Sprintf("Delete run %s and its step history?", id))
+		if err := cl.Do("DELETE", v2path("/connections/{connection_id}/workflow_runs/{run_id}", conn, id), nil, nil, nil); err != nil {
 			fail(err)
 		}
 		if ui.JSON {
@@ -1162,9 +1164,9 @@ func (c *ctx) rawAPI(args []string) {
 			body = []byte(*data)
 		}
 	}
-	cl, creds := c.appClient()
+	cl, app := c.appClient()
 	if method != "GET" && method != "HEAD" {
-		c.confirmWrite(creds, method+" "+path)
+		c.confirmWrite(app, method+" "+path)
 	}
 	res, status, err := cl.Raw(method, path, nil, body)
 	if err != nil {

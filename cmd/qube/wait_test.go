@@ -126,7 +126,8 @@ func TestWorkflowRunWaitStopsForADecision(t *testing.T) {
 		),
 	})
 	setJSON(t, false)
-	out := captureStdout(t, func() { c.workflows([]string{"run", "sync", "--connection", "conn_1", "--wait"}) })
+	c.connection = "conn_1"
+	out := captureStdout(t, func() { c.workflows([]string{"run", "sync", "--wait"}) })
 	if !strings.Contains(out, "Run run_1 is waiting for a decision:") || !strings.Contains(out, "name_taken") || !strings.Contains(out, "qube workflows decide conn_1 run_1 <option>") {
 		t.Fatalf("output = %q", out)
 	}

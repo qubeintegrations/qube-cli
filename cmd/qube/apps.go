@@ -51,9 +51,13 @@ func (c *ctx) apps() {
 
 // use picks the default app for this host, or (`qube use --host H`) the default host.
 func (c *ctx) use(args []string) {
+	if len(args) == 0 && c.connection != "" {
+		c.useConnection(c.connection)
+		return
+	}
 	if len(args) == 0 {
 		if !c.hostExplicit {
-			ui.Usage("usage: qube use <app>  |  qube use --host <host>")
+			ui.Usage("usage: qube use <app>  |  qube use --connection <id|name|none>  |  qube use --host <host>")
 		}
 		if _, ok := c.cfg.Sessions[c.host]; !ok {
 			ui.Fail("not logged in to %s (run `qube login --host %s`)", c.host, strings.TrimPrefix(c.host, "https://"))
@@ -77,10 +81,20 @@ func (c *ctx) use(args []string) {
 		fail(err)
 	}
 	ui.Info("Default app for %s: %s", c.host, app.Name)
+	c.appCache, c.app = app, app.ID
+	if c.connection != "" {
+		c.useConnection(c.connection)
+	} else if cn, ok := s.DefaultConnections[app.ID]; ok {
+		ui.Info("Default connection: %s", connectionLabel(cn))
+	}
 }
 
-// the app to act as: --app, else the default from `qube use`, else the only app
+// the app to act as: --app, else the default from `qube use`, else the only app. Looked up
+// once per command.
 func (c *ctx) currentApp() *api.App {
+	if c.appCache != nil {
+		return c.appCache
+	}
 	apps, _ := c.appsList()
 	ref := c.app
 	if ref == "" {
@@ -90,24 +104,18 @@ func (c *ctx) currentApp() *api.App {
 	if err != nil {
 		fail(err)
 	}
+	c.appCache = app
 	return app
 }
 
-// appClient is an API client carrying the current app's key, for /api/v1 and /api/v2.
-// The key is only ever used against the host that issued it.
-func (c *ctx) appClient() (*api.Client, *api.Credentials) {
+// appClient is an API client for /api/v1 and /api/v2 acting as the current app. It sends the
+// session token, not the app's key, so the server holds a read-only session to reads and a
+// revoked session stops working at once.
+func (c *ctx) appClient() (*api.Client, *api.App) {
 	app := c.currentApp()
-	creds, err := c.cli().Credentials(app.ID)
-	if err != nil {
-		fail(err)
-	}
-	if err := sameHost(c.host, creds.APIBaseURL); err != nil {
-		fail(err)
-	}
-	cl := api.New(c.host, c.timeout)
-	cl.Ctx = c.bg
-	cl.APIKey = creds.APIKey
-	return cl, creds
+	cl := c.cli()
+	cl.AppID = app.ID
+	return cl, app
 }
 
 // sameHost refuses to send an app's key anywhere but the host its credentials name.
@@ -134,7 +142,16 @@ func (c *ctx) env(args []string) {
 	write := fs.String("write", "", "append/replace QUBE_* lines in this file (e.g. .env)")
 	show := fs.Bool("print", false, "print the values to stdout (they are otherwise never shown)")
 	parseAnywhere(fs, args)
-	_, creds := c.appClient()
+	if c.cfg.Sessions[c.host].ReadOnly() {
+		ui.Fail("this session is read-only, so it can't read the app's API key or webhook secret. `qube login` again and choose read and write access.")
+	}
+	creds, err := c.cli().Credentials(c.currentApp().ID)
+	if err != nil {
+		fail(err)
+	}
+	if err := sameHost(c.host, creds.APIBaseURL); err != nil {
+		fail(err)
+	}
 	lines := map[string]string{
 		"QUBE_URL":            c.host,
 		"QUBE_API_KEY":        creds.APIKey,

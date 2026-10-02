@@ -26,7 +26,9 @@ type ctx struct {
 	timeout      time.Duration
 	cfg          *config.File
 	bg           context.Context
-	yes          bool // --yes: answer a confirmation (production writes, deletes) for a script
+	yes          bool     // --yes: answer a confirmation (production writes, deletes) for a script
+	connection   string   // --connection: the connection a command acts on, when it doesn't name one
+	appCache     *api.App // the app this command acts as, once looked up
 }
 
 func main() {
@@ -34,8 +36,8 @@ func main() {
 		usage()
 		return
 	}
-	// global flags may appear anywhere: --host, --app, --json, --timeout, --yes
-	var host, app, timeout string
+	// global flags may appear anywhere: --host, --app, --json, --timeout, --yes, --connection
+	var host, app, timeout, connection string
 	var yes bool
 	var args []string
 	for i := 1; i < len(os.Args); i++ {
@@ -45,6 +47,11 @@ func main() {
 			ui.JSON = true
 		case a == "--yes":
 			yes = true
+		case a == "--connection" && i+1 < len(os.Args):
+			connection = os.Args[i+1]
+			i++
+		case strings.HasPrefix(a, "--connection="):
+			connection = strings.TrimPrefix(a, "--connection=")
 		case a == "--host" && i+1 < len(os.Args):
 			host = os.Args[i+1]
 			i++
@@ -81,6 +88,7 @@ func main() {
 		timeout:      parseTimeout(timeout),
 		cfg:          cfg,
 		yes:          yes,
+		connection:   connection,
 	}
 	bg, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -156,40 +164,44 @@ func usage() {
 	fmt.Print(`qube ` + api.Version + ` -- the QuBe Sync command line
 
 Account:
-  login [--name N]                 connect this terminal (approve in the browser; no secrets typed)
-  status                           host, user, scope, default app and expiry of the stored session (offline)
+  login [--name N] [--read-only]   connect this terminal (approve in the browser; no secrets typed);
+                                   --read-only asks for a session that can look but not change anything
+  status                           host, user, scope, access, defaults and expiry of the session (offline)
   whoami                           the same, confirmed by the server
   logout                           revoke this terminal's session
   sessions [revoke <id>]           every session of yours on this host
   apps                             the apps this session may act on
   use <app> | use --host H         pick the default app / the default host (when logged in to several)
-  env [--write .env] [--print]     the app's QUBE_URL, QUBE_API_KEY and QUBE_WEBHOOK_SECRET (written, not shown)
+  use --connection <id|name|none>  pick the app's default connection, for commands that don't name one
+  env [--write .env] [--print]     the app's QUBE_URL, QUBE_API_KEY and QUBE_WEBHOOK_SECRET (written, not shown;
+                                   read and write sessions only)
 
 QuickBooks operations (every one the host's v2 API has, read from its OpenAPI document):
   qb [--refresh]                   every resource and its verbs (--refresh reads the list again)
   qb <resource>                    a resource's operations
   qb <resource> <verb> --help      an operation's flags (--help --json: its full schema)
-  qb <resource> <verb> <connection> [--flag value...] [--data JSON|@file|-] [--wait[=10m]]
-                                   queue it: e.g. qb customers list <connection> --max-returned 5;
+  qb <resource> <verb> [connection] [--flag value...] [--data JSON|@file|-] [--wait[=10m]]
+                                   queue it: e.g. qb customers list --max-returned 5;
                                    --wait waits for QuickBooks' answer (every page) and prints it
 
-Connections, requests, the simulator and workflows (as the default app, or --app):
-  connections list
-  connections create [--simulated] [--name N] [--redirect-url U]
-  connections show <connection>                             (table, or --json)
-  connections update <connection> [--name N] [--redirect-url U]
+Connections, requests, the simulator and workflows (as the default app, or --app). [connection] may
+be left out: it is then --connection, or the default from ` + "`qube use --connection`" + `.
+  connections list                                          * marks the default
+  connections create [--simulated] [--name N] [--redirect-url U] [--use]   (--use: make it the default)
+  connections show [connection]                             (table, or --json)
+  connections update [connection] [--name N] [--redirect-url U]
   connections delete <connection>                           also discards every queued request on it
-  connections qwc <connection> [--output FILE]              the .qwc file the Web Connector needs
-  connections password <connection> [--stdin]               a new Web Connector password (never as a flag)
-  connections onboarding-url <connection>                    a fresh onboarding link
-  requests list <connection> [--page N] [--page-size N] [--state S] [--webhook-state S]
+  connections qwc [connection] [--output FILE]              the .qwc file the Web Connector needs
+  connections password [connection] [--stdin]               a new Web Connector password (never as a flag)
+  connections onboarding-url [connection]                   a fresh onboarding link
+  requests list [connection] [--page N] [--page-size N] [--state S] [--webhook-state S]
                               [--search TEXT] [--sort inserted_at|updated_at] [--sort-direction asc|desc]
-  requests show <connection> <id>                           (JSON)
-  requests pages <connection> <id>                          every page of an iterated query (JSON)
-  requests discard <connection> <id>                        withdraw request the Web Connector hasn't picked up
-  requests tail <connection>                                watch a connection; Ctrl-C stops
-  simulator show|reset|sync <connection>
-  simulator faults <connection> [--qb closed|modal|mismatch|unexpected|ok]
+  requests show [connection] <id>                           (JSON)
+  requests pages [connection] <id>                          every page of an iterated query (JSON)
+  requests discard [connection] <id>                        withdraw request the Web Connector hasn't picked up
+  requests tail [connection]                                watch a connection; Ctrl-C stops
+  simulator show|reset|sync [connection]
+  simulator faults [connection] [--qb closed|modal|mismatch|unexpected|ok]
                                   [--next xml|3100|3120|3140|3180|3200|ok] [--latency ms]
   workflows list
   workflows show KEY                                        (JSON)
@@ -203,13 +215,13 @@ Connections, requests, the simulator and workflows (as the default app, or --app
   workflows schema                                          the chart JSON Schema
   workflows templates [KEY]                                 shipped charts ready to install
   workflows install KEY [--publish] [--notes TEXT] [--as NEW_KEY]
-  workflows run KEY --connection C [--input JSON|@file] [--version V] [--webhook-url U] [--wait]
-  workflows runs <connection> [run-id] [--events] [--state S] [--outcome O] [--after SEQ] [--limit N]
-                                                             (a run or its events: JSON)
-  workflows decide <connection> <run-id> <option> [--data JSON] [--wait]
-  workflows cancel <connection> <run-id> [--reason TEXT]
-  workflows delete-run <connection> <run-id>                only once the run has ended
-  api METHOD PATH [--data JSON|@file|-]                     any v2 call with the app's key (PATH /connections
+  workflows run KEY [--input JSON|@file] [--version V] [--webhook-url U] [--wait]
+  workflows runs [connection] [run-id] [--events] [--state S] [--outcome O] [--after SEQ] [--limit N]
+                                   (a run or its events: JSON; with a connection chosen, a lone id is the run)
+  workflows decide [connection] <run-id> <option> [--data JSON] [--wait]
+  workflows cancel [connection] <run-id> [--reason TEXT]
+  workflows delete-run [connection] <run-id>                only once the run has ended
+  api METHOD PATH [--data JSON|@file|-]                     any v2 call, as the current app (PATH /connections
                                                             means /api/v2/connections)
 
 Other:
@@ -221,10 +233,12 @@ Global flags (anywhere on the line):
   --host H        the QuBe Sync host (default: the host you logged in to; QUBE_HOST)
   --app NAME|ID   act as this app instead of the default from ` + "`qube use`" + `
   --timeout 60    HTTP timeout in seconds, or a duration like 2m (QUBE_TIMEOUT)
+  --connection C  the connection a command acts on when it doesn't name one (default: ` + "`qube use --connection`" + `)
   --yes           answer yes when asked to confirm, for a script
 
 In a production app every request that changes something asks first (removing something asks in
-any app). Without a terminal, or under --json, such a request needs --yes.
+any app). Without a terminal, or under --json, such a request needs --yes. A read-only session
+(` + "`qube login --read-only`" + `) can't change anything at all.
 
 Exit codes: 0 ok, 1 failed, 2 wrong usage, 130 interrupted.
 Config: ` + configPathForHelp() + ` (QUBE_CONFIG overrides). QUBE_NO_BROWSER=1 stops login opening a browser.
