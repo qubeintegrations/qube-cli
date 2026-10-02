@@ -310,6 +310,82 @@ func TestSimulatorFaults(t *testing.T) {
 	}
 }
 
+// simulatorFaultsPUT runs `qube simulator faults` against a server whose simulator has the given
+// faults, and returns the faults the command PUT back and what it printed.
+func simulatorFaultsPUT(t *testing.T, current map[string]interface{}, args ...string) (map[string]interface{}, string) {
+	t.Helper()
+	var calls []string
+	var putBody map[string]interface{}
+	c := newAPITest(t, map[string]http.HandlerFunc{
+		"/api/v2/connections/conn_1/simulator": func(w http.ResponseWriter, r *http.Request) {
+			calls = append(calls, r.Method)
+			switch r.Method {
+			case "GET":
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"data": map[string]interface{}{"faults": current},
+				})
+			case "PUT":
+				_ = json.NewDecoder(r.Body).Decode(&putBody)
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"data": map[string]interface{}{"faults": putBody["faults"]},
+				})
+			default:
+				t.Fatalf("unexpected method %s", r.Method)
+			}
+		},
+	})
+	setJSON(t, false)
+	out := captureStdout(t, func() { c.simulator(append([]string{"faults", "conn_1"}, args...)) })
+	if len(calls) != 2 || calls[0] != "GET" || calls[1] != "PUT" {
+		t.Fatalf("calls = %v", calls)
+	}
+	faults, _ := putBody["faults"].(map[string]interface{})
+	return faults, out
+}
+
+func TestSimulatorFaultsNextLost(t *testing.T) {
+	// lost replaces whatever else the next request was set to get, and leaves sticky faults alone
+	faults, out := simulatorFaultsPUT(t,
+		map[string]interface{}{"next_status": map[string]interface{}{"code": 3100}, "latency_ms": 50},
+		"--next", "lost")
+	if faults["next_lost_response"] != true || faults["next_status"] != nil || faults["latency_ms"] != float64(50) || len(faults) != 2 {
+		t.Fatalf("PUT faults = %v", faults)
+	}
+	if !strings.Contains(out, "Faults now:") || !strings.Contains(out, `"next_lost_response":true`) {
+		t.Fatalf("output = %q", out)
+	}
+}
+
+func TestSimulatorFaultsNextOkClearsLost(t *testing.T) {
+	faults, out := simulatorFaultsPUT(t,
+		map[string]interface{}{
+			"next_lost_response":  true,
+			"next_status":         map[string]interface{}{"code": 3100},
+			"next_response_error": "xml_error",
+			"connection_error":    "qb_closed",
+		},
+		"--next", "ok")
+	if faults["connection_error"] != "qb_closed" || len(faults) != 1 {
+		t.Fatalf("PUT faults = %v", faults)
+	}
+	if !strings.Contains(out, "Faults now:") {
+		t.Fatalf("output = %q", out)
+	}
+	// with nothing left, the command says so
+	faults, out = simulatorFaultsPUT(t, map[string]interface{}{"next_lost_response": true}, "--next", "ok")
+	if len(faults) != 0 || !strings.Contains(out, "No faults") {
+		t.Fatalf("PUT faults = %v, output = %q", faults, out)
+	}
+}
+
+func TestSimulatorFaultsNextStatusReplacesLost(t *testing.T) {
+	faults, _ := simulatorFaultsPUT(t, map[string]interface{}{"next_lost_response": true}, "--next", "3200")
+	ns, _ := faults["next_status"].(map[string]interface{})
+	if faults["next_lost_response"] != nil || ns["code"] != float64(3200) || len(faults) != 1 {
+		t.Fatalf("PUT faults = %v", faults)
+	}
+}
+
 // ---------------------------------------------------------------- workflows
 
 func TestWorkflowsValidateValidChart(t *testing.T) {

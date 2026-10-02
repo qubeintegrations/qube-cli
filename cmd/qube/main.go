@@ -202,7 +202,7 @@ be left out: it is then --connection, or the default from ` + "`qube use --conne
   requests tail [connection]                                watch a connection; Ctrl-C stops
   simulator show|reset|sync [connection]
   simulator faults [connection] [--qb closed|modal|mismatch|unexpected|ok]
-                                  [--next xml|3100|3120|3140|3180|3200|ok] [--latency ms]
+                                  [--next xml|lost|3100|3120|3140|3180|3200|ok] [--latency ms]
   workflows list
   workflows show KEY                                        (JSON)
   workflows push FILE [--publish] [--notes TEXT]

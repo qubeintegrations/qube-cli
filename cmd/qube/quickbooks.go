@@ -435,7 +435,7 @@ func (c *ctx) simulator(args []string) {
 	// faults' flags, read up front so the connection can come before or after them
 	fs := flag.NewFlagSet("simulator "+args[0], flag.ExitOnError)
 	qb := fs.String("qb", "", "closed | modal | mismatch | unexpected | ok  (sticky connection fault)")
-	next := fs.String("next", "", "xml | 3100 | 3120 | 3140 | 3180 | 3200 | ok  (one-shot, next request)")
+	next := fs.String("next", "", "xml | lost | 3100 | 3120 | 3140 | 3180 | 3200 | ok  (one-shot, next request; lost: applied but never answered, so it ends timed_out)")
 	latency := fs.Int("latency", -1, "milliseconds QuickBooks thinks before each answer")
 	parseAnywhere(fs, args[1:])
 	connection, _ := c.connectionAnd(fs.Args(), 0, "qube simulator "+args[0]+" [connection]")
@@ -526,21 +526,24 @@ func applyFaultFlags(faults map[string]interface{}, qb, next string, latency int
 	default:
 		return fmt.Errorf("--qb must be closed|modal|mismatch|unexpected|ok (got %q)", qb)
 	}
-	switch next {
-	case "":
-	case "ok":
-		delete(faults, "next_response_error")
-		delete(faults, "next_status")
-	case "xml":
-		delete(faults, "next_status")
-		faults["next_response_error"] = "xml_error"
-	default:
+	// The next request gets one fault at most, as in the dashboard: each value replaces the others.
+	if next != "" {
 		code, err := strconv.Atoi(next)
-		if err != nil {
-			return fmt.Errorf("--next must be xml|<QuickBooks status code>|ok (got %q)", next)
+		if err != nil && next != "ok" && next != "xml" && next != "lost" {
+			return fmt.Errorf("--next must be xml|lost|<QuickBooks status code>|ok (got %q)", next)
 		}
 		delete(faults, "next_response_error")
-		faults["next_status"] = map[string]interface{}{"code": code}
+		delete(faults, "next_status")
+		delete(faults, "next_lost_response")
+		switch next {
+		case "ok":
+		case "xml":
+			faults["next_response_error"] = "xml_error"
+		case "lost":
+			faults["next_lost_response"] = true
+		default:
+			faults["next_status"] = map[string]interface{}{"code": code}
+		}
 	}
 	if latency >= 0 {
 		if latency == 0 {
