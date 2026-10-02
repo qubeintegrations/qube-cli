@@ -274,7 +274,7 @@ func TestHelpShowsFlagsAndBody(t *testing.T) {
 		"--max-returned INTEGER", "Limits the number of objects.",
 		`--name-range OBJECT`, `JSON: {"from", "to"}`,
 		"--include STRING...", "One of: Name, Balance.",
-		"--iterator ",
+		"\n  --iterator\n",
 	} {
 		if !strings.Contains(b.String(), want) {
 			t.Errorf("help lacks %q:\n%s", want, b.String())

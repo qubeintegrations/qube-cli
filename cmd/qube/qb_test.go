@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"net/http"
+	"os/exec"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -19,6 +21,7 @@ const qbSpec = `{
         "parameters": [
           {"in": "path", "name": "connection_id", "required": true, "schema": {"type": "string"}},
           {"in": "query", "name": "max_returned", "schema": {"type": "integer"}},
+          {"in": "query", "name": "active_status", "schema": {"type": "string", "enum": ["ActiveOnly", "All"]}},
           {"in": "query", "name": "webhook_url", "schema": {"type": "string"}}
         ],
         "callbacks": {"answered": {}}
@@ -26,7 +29,7 @@ const qbSpec = `{
       "post": {
         "operationId": "createCustomer", "summary": "Create customer",
         "parameters": [{"in": "path", "name": "connection_id", "required": true, "schema": {"type": "string"}}],
-        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "properties": {"name": {"type": "string"}}}}}},
+        "requestBody": {"required": true, "content": {"application/json": {"example": {"name": "Northwind"}, "schema": {"type": "object", "properties": {"name": {"type": "string"}}}}}},
         "callbacks": {"answered": {}}
       }
     }
@@ -131,5 +134,59 @@ func TestQBListsResourcesAndHelp(t *testing.T) {
 	out = captureStdout(t, func() { c.qbComplete([]string{"customers"}) })
 	if out != "list\ncreate\n" {
 		t.Fatalf("completion = %q", out)
+	}
+}
+
+func TestQBExamplePrintsTheSpecsBody(t *testing.T) {
+	c, seen := qbTest(t, true)
+	ui.JSON = false
+	out := captureStdout(t, func() { c.qb([]string{"customers", "create", "--example"}) })
+	if out != "{\n  \"name\": \"Northwind\"\n}\n" {
+		t.Fatalf("--example printed %q", out)
+	}
+	if seen.method != "" {
+		t.Fatalf("--example sent a request: %s %s", seen.method, seen.path)
+	}
+	out = captureStdout(t, func() { c.qb([]string{"customers", "create", "--help"}) })
+	if !strings.HasSuffix(out, "Example:\n  qube qb customers create <connection> --data '{\"name\":\"Northwind\"}'\n") {
+		t.Fatalf("help should end with the example: %q", out)
+	}
+}
+
+func TestQBCompletesFlagsAndValues(t *testing.T) {
+	c, _ := qbTest(t, true)
+	ui.JSON = false
+	_ = captureStdout(t, func() { c.qb([]string{"customers"}) }) // reads the list into the cache
+	if out := captureStdout(t, func() { c.qbComplete([]string{"customers", "list", "conn_1"}) }); out != "--max-returned\n--active-status\n--webhook-url\n--data\n--wait\n--help\n" {
+		t.Fatalf("flags = %q", out)
+	}
+	if out := captureStdout(t, func() { c.qbComplete([]string{"customers", "list", "--active-status"}) }); out != "ActiveOnly\nAll\n" {
+		t.Fatalf("values = %q", out)
+	}
+	if out := captureStdout(t, func() { c.qbComplete([]string{"customers", "list", "--max-returned"}) }); out != "" {
+		t.Fatalf("a number has nothing to offer: %q", out)
+	}
+	if out := captureStdout(t, func() { c.qbComplete([]string{"customers", "create"}) }); !strings.HasSuffix(out, "--example\n") {
+		t.Fatalf("create flags = %q", out)
+	}
+}
+
+// The scripts are valid in the shells at hand, and ask `qube qb --complete` for an
+// operation's flags.
+func TestCompletionScripts(t *testing.T) {
+	for _, shell := range []string{"bash", "zsh", "fish"} {
+		script := captureStdout(t, func() { completion([]string{shell}) })
+		if !strings.Contains(script, "qube qb --complete") || strings.Count(script, "--complete") < 3 {
+			t.Errorf("%s: the script doesn't complete qb resources, verbs and flags:\n%s", shell, script)
+		}
+		path, err := exec.LookPath(shell)
+		if err != nil || shell == "fish" || runtime.GOOS == "windows" { // there, bash may be WSL's stub
+			continue
+		}
+		cmd := exec.Command(path, "-n")
+		cmd.Stdin = strings.NewReader(script)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Errorf("%s -n: %v\n%s", shell, err, out)
+		}
 	}
 }

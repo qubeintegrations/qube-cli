@@ -23,9 +23,10 @@ type Flag struct {
 // Flags lists the operation's flags: its query parameters, then its body's top-level fields.
 func (op *Op) Flags() []Flag {
 	var out []Flag
-	// --data, --help and --wait are qube's own; the rest are its global flags, which never
-	// reach an operation. A body field by one of these names is still set via --data.
-	taken := map[string]bool{"data": true, "help": true, "wait": true, "json": true, "host": true, "app": true, "timeout": true, "yes": true}
+	// --data, --help, --wait and --example are qube's own; the rest are its global flags,
+	// which never reach an operation. A body field by one of these names is still set via
+	// --data.
+	taken := map[string]bool{"data": true, "help": true, "wait": true, "example": true, "json": true, "host": true, "app": true, "timeout": true, "yes": true}
 	for _, p := range op.Query {
 		name := flagName(p.Name)
 		if !taken[name] {
@@ -44,6 +45,8 @@ func (op *Op) Flags() []Flag {
 }
 
 // BodyFields are the top-level properties of the request body, sorted, required ones first.
+// The fields of a choice the spec writes as a oneOf (one alternative's fields each) are
+// among them: whichever alternative a command line picks is set by its flags.
 func (op *Op) BodyFields() []Param {
 	if len(op.Body) == 0 {
 		return nil
@@ -51,6 +54,9 @@ func (op *Op) BodyFields() []Param {
 	var schema struct {
 		Properties map[string]map[string]interface{} `json:"properties"`
 		Required   []string                          `json:"required"`
+		OneOf      []struct {
+			Properties map[string]map[string]interface{} `json:"properties"`
+		} `json:"oneOf"`
 	}
 	if json.Unmarshal(op.Body, &schema) != nil {
 		return nil
@@ -59,10 +65,20 @@ func (op *Op) BodyFields() []Param {
 	for _, r := range schema.Required {
 		required[r] = true
 	}
-	var out []Param
+	props := map[string]map[string]interface{}{}
+	for _, branch := range schema.OneOf {
+		for name, s := range branch.Properties {
+			props[name] = s
+		}
+	}
 	for name, s := range schema.Properties {
+		props[name] = s
+	}
+	var out []Param
+	for name, s := range props {
 		p := Param{Name: name, Required: required[name], Type: typeOf(s)}
 		p.Description, _ = s["description"].(string)
+		p.Format, _ = s["format"].(string)
 		switch p.Type {
 		case "array":
 			items, _ := s["items"].(map[string]interface{})

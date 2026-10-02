@@ -18,17 +18,20 @@ import (
 )
 
 // Format is the shape of a cached Index; a cache written with another one is fetched again.
-const Format = 1
+// 2: operations carry their request example, parameters their format and example.
+const Format = 2
 
 // Param is one query parameter.
 type Param struct {
 	Name        string          `json:"name"`
 	Required    bool            `json:"required,omitempty"`
-	Type        string          `json:"type,omitempty"`  // string, integer, number, boolean, object, array
-	Items       string          `json:"items,omitempty"` // an array's item type
-	Enum        []string        `json:"enum,omitempty"`  // a string's values, or an array's items'
+	Type        string          `json:"type,omitempty"`   // string, integer, number, boolean, object, array
+	Items       string          `json:"items,omitempty"`  // an array's item type
+	Enum        []string        `json:"enum,omitempty"`   // a string's values, or an array's items'
+	Format      string          `json:"format,omitempty"` // a string's: date, date-time, uri...
 	Description string          `json:"description,omitempty"`
 	Schema      json.RawMessage `json:"schema,omitempty"`
+	Example     json.RawMessage `json:"example,omitempty"`
 }
 
 // Op is one operation: `qube qb <Resource> <Verb> <path params...>`.
@@ -44,6 +47,7 @@ type Op struct {
 	Query        []Param         `json:"query,omitempty"`
 	Body         json.RawMessage `json:"body,omitempty"` // the request body's JSON Schema, refs resolved
 	BodyRequired bool            `json:"body_required,omitempty"`
+	Example      json.RawMessage `json:"example,omitempty"` // the spec's example request body
 }
 
 // Index is every QuickBooks operation one host offers.
@@ -126,7 +130,8 @@ func (r *resolver) op(path, method string, raw json.RawMessage, shared []json.Ra
 			Ref      string `json:"$ref"`
 			Required bool   `json:"required"`
 			Content  map[string]struct {
-				Schema json.RawMessage `json:"schema"`
+				Schema  json.RawMessage `json:"schema"`
+				Example json.RawMessage `json:"example"`
 			} `json:"content"`
 		} `json:"requestBody"`
 	}
@@ -164,6 +169,9 @@ func (r *resolver) op(path, method string, raw json.RawMessage, shared []json.Ra
 			}
 			op.Body, _ = json.Marshal(r.deref(schema, 0, map[string]bool{}))
 			op.BodyRequired = rb.Required
+			if json.Valid(c.Example) && string(c.Example) != "null" {
+				op.Example = c.Example
+			}
 		}
 	}
 	return op, true, nil
@@ -290,6 +298,7 @@ func (r *resolver) param(raw json.RawMessage) (Param, string, error) {
 		Required    bool                   `json:"required"`
 		Description string                 `json:"description"`
 		Schema      map[string]interface{} `json:"schema"`
+		Example     json.RawMessage        `json:"example"`
 	}
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return Param{}, "", err
@@ -302,7 +311,13 @@ func (r *resolver) param(raw json.RawMessage) (Param, string, error) {
 		return r.param(target)
 	}
 	schema, _ := r.deref(p.Schema, 0, map[string]bool{}).(map[string]interface{})
-	param := Param{Name: p.Name, Required: p.Required, Description: p.Description, Type: typeOf(schema)}
+	param := Param{Name: p.Name, Required: p.Required, Description: p.Description, Type: typeOf(schema), Example: p.Example}
+	param.Format, _ = schema["format"].(string)
+	if len(param.Example) == 0 {
+		if ex, ok := schema["example"]; ok {
+			param.Example, _ = json.Marshal(ex)
+		}
+	}
 	switch param.Type {
 	case "array":
 		items, _ := schema["items"].(map[string]interface{})

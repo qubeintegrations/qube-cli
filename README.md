@@ -48,6 +48,8 @@ delete, void, merge...). They aren't written into the CLI: it reads them from th
 qube qb                                          # every resource and its verbs
 qube qb customers                                # one resource's operations
 qube qb customers list --help                    # its flags; --help --json prints the full schema
+qube qb invoices create --example > invoice.json # the API's example body, to edit
+qube qb invoices create <connection> --data @invoice.json
 qube qb customers list <connection> --name-starts-with North --max-returned 5
 qube qb customers create <connection> --name "Northwind" --bill-address '{"city": "Austin"}'
 qube qb txn-void execute <connection> --txn-id 1A2B-3C --txn-void-type Invoice
@@ -58,12 +60,29 @@ qube qb items list <connection> --iterator --max-returned 100 --wait   # every p
   alone means true (`--iterator`). An object takes JSON, and a list takes the flag once per value or a
   JSON array. Any of these also takes `@file`.
 - `--data JSON|@file|-` sends a whole body. Field flags are merged over it.
+- `--help` is built from the spec too. Descriptions are rendered from their Markdown (links print as
+  `text (url)`), and each flag shows the rules it is part of, read from the body's JSON Schema: which
+  fields exclude each other (`(at most one of: --rate | --rate-percent | --price-level-ref)`, or
+  `exactly one of` for a required choice), which lists combine (`(can be combined with
+  --journal-credit-line)`), and an object's keys with the required ones named. Query parameters
+  can't carry such a rule in OpenAPI, so for them it is read from the sentence the API's generator
+  writes in each description ("Choose at most one of: ..."), as it is for a list that combines only
+  optionally. Help ends with an example: the API's own example body for the operation, as a
+  `--data` command (shortened when it is long), or a query's required parameters.
+- `--example` prints that example body as indented JSON, to save, edit and send with `--data @file`.
+- Shell completion (`qube completion bash|zsh|fish`) completes resources, verbs, an operation's flags
+  and the values of a flag that lists them (`--active-status <TAB>`), all from the cached list, so a
+  TAB never waits on the network.
 - Each operation queues a request and prints its id. QuickBooks answers when the connection's Web
   Connector next runs. `--wait` waits here and prints the answer: every page of an iterated
   query, with the exit status 1 if it failed. It waits up to 10 minutes; `--wait=30m` sets another
   limit, and Ctrl-C stops waiting but leaves the request queued. Otherwise pass `--webhook-url` to have
   the answer sent to you, or look it up later with `qube requests show <connection> <id>`.
   (`--wait` polls, which suits a terminal or a script; an integration uses `webhook_url`.)
+- QuickBooks keeps an iteration only for the Web Connector session that fetched its first page. If that
+  session ends partway (QuickBooks is closed, the Web Connector is stopped), the next page fails as
+  `error` (`quickbooks_connection_error`) and `--wait` prints the pages it got and exits 1. Queue the
+  query again to get the rest; it starts over from the first page.
 - `qube workflows run ... --wait` and `qube workflows decide ... --wait` wait the same way, until the run
   ends (exit 1 if it failed or was cancelled) or needs a decision.
 - The list is cached per host in `$XDG_CACHE_HOME/qube/` (`~/Library/Caches/qube/` on macOS;
@@ -151,7 +170,24 @@ go vet ./... && gofmt -l . && go test ./...
 ```
 
 Stdlib only; Go 1.16 is the floor so it builds on old CI images. CI (`.github/workflows/ci.yml`)
-vets, tests and builds on Linux, macOS and Windows. A release is a tag: `git tag v0.1.0 && git push
+vets, tests and builds on Linux, macOS and Windows.
+
+### Checking `qube qb` against a host's spec
+
+`internal/ops/spec_check_test.go` renders every operation's help and holds it to the spec: no
+Markdown left raw (no backtick, `](` or `###`), no URL cut or broken across lines, every request
+example binding through `--data` to the same JSON body (and `--example` printing it), and every field
+of a choice showing its rule. In every `go test` (and so in CI, which has no spec) it runs over
+`internal/ops/testdata/qbxml_subset.json`, a few operations extracted from the qube app's generated
+spec, and `testdata/help.golden` holds the help they render. Neither is edited by hand: with the
+qube checkout beside this one (or `QUBE_REPO` naming it), `go test ./internal/ops` fails when the
+subset is out of date, and `go test ./internal/ops -update` rewrites both. To check a whole spec, the
+one a host serves:
+
+```bash
+curl -sf https://qubesync.com/api/v2/openapi.json -o /tmp/v2.json   # or your --host
+QUBE_SPEC=/tmp/v2.json go test ./internal/ops -run TestParseServedSpec -v
+``` A release is a tag: `git tag v0.1.0 && git push
 --tags` runs [goreleaser](.goreleaser.yaml) from `.github/workflows/release.yml`, which builds the
 six binaries, writes `checksums.txt` and publishes the GitHub release.
 

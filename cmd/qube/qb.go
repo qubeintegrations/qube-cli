@@ -94,9 +94,13 @@ func (c *ctx) qb(args []string) {
 		}
 		ui.Usage("%s has no %q; it has %s", resource, verb, strings.Join(verbs, ", "))
 	}
+	example := false
 	for _, a := range args[2:] {
-		if a == "--help" || a == "-h" {
+		switch a {
+		case "--help", "-h":
 			help = true
+		case "--example":
+			example = true
 		}
 	}
 	if help {
@@ -105,6 +109,15 @@ func (c *ctx) qb(args []string) {
 			return
 		}
 		op.WriteHelp(os.Stdout, "qube qb")
+		return
+	}
+	if example {
+		// The spec's example body, to save, edit and send back with --data @file.
+		body := op.ExampleJSON()
+		if body == nil {
+			ui.Usage("%s %s has no example body (it takes no body; `qube qb %s %s --help` ends with an example command)", resource, verb, resource, verb)
+		}
+		fmt.Printf("%s\n", body)
 		return
 	}
 
@@ -172,19 +185,34 @@ func recheck(ix *ops.Index, fetched bool) bool {
 	return !fetched && time.Since(ix.FetchedAt) > opsRecheckAfter
 }
 
-// qbComplete prints resource names, or a resource's verbs, from the cache only: shell
-// completion must never wait on the network.
+// qbComplete prints, from the cache only (shell completion must never wait on the
+// network): resource names; a resource's verbs; or, given a resource and a verb, the
+// operation's flags, or the values of the flag given as the word before the cursor.
 func (c *ctx) qbComplete(args []string) {
 	ix := c.opsSource().Cached()
 	if ix == nil {
 		return
 	}
-	if len(args) == 0 {
+	switch len(args) {
+	case 0:
 		fmt.Println(strings.Join(ix.Resources(), "\n"))
 		return
+	case 1:
+		for _, op := range ix.Of(args[0]) {
+			fmt.Println(op.Verb)
+		}
+		return
 	}
-	for _, op := range ix.Of(args[0]) {
-		fmt.Println(op.Verb)
+	op := ix.Find(args[0], args[1])
+	if op == nil {
+		return
+	}
+	prev := ""
+	if len(args) > 2 {
+		prev = args[2]
+	}
+	for _, w := range op.Complete(prev) {
+		fmt.Println(w)
 	}
 }
 

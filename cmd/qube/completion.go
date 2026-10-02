@@ -20,8 +20,10 @@ var commandTree = map[string][]string{
 
 var globalFlags = []string{"--json", "--host", "--app", "--timeout", "--yes", "--connection"}
 
-// `qb` resources and verbs come from the host's operation list, which the scripts read with
-// `qube qb --complete [resource]` (cache only, so a TAB never waits on the network).
+// `qb` resources, verbs and each operation's flags (and their values, where the spec lists
+// them) come from the host's operation list, which the scripts read with
+// `qube qb --complete [resource [verb [previous word]]]` (cache only, so a TAB never waits
+// on the network).
 
 func completion(args []string) {
 	if len(args) < 1 {
@@ -45,6 +47,10 @@ _qube() {
     words=$(qube qb --complete 2>/dev/null)
   elif [ "$prev" = qb ] && [ "$COMP_CWORD" -eq 3 ]; then
     words=$(qube qb --complete "${COMP_WORDS[2]}" 2>/dev/null)
+  elif [ "$prev" = qb ]; then
+    words=$(qube qb --complete "${COMP_WORDS[2]}" "${COMP_WORDS[3]}" "${COMP_WORDS[COMP_CWORD-1]}" 2>/dev/null)
+    COMPREPLY=($(compgen -W "$words" -- "$cur"))
+    return
   elif [ "$COMP_CWORD" -ge 2 ]; then
     case "$prev" in
 %s    *) words="" ;;
@@ -69,6 +75,10 @@ _qube() {
     words_list=(${(f)"$(qube qb --complete 2>/dev/null)"})
   elif [[ "$prev" == qb ]] && (( CURRENT == 4 )); then
     words_list=(${(f)"$(qube qb --complete "${words[3]}" 2>/dev/null)"})
+  elif [[ "$prev" == qb ]]; then
+    words_list=(${(f)"$(qube qb --complete "${words[3]}" "${words[4]}" "${words[CURRENT-1]}" 2>/dev/null)"})
+    compadd -- "${words_list[@]}"
+    return
   else
     case "$prev" in
 %s    *) words_list=() ;;
@@ -92,6 +102,7 @@ compdef _qube qube
 		}
 		fmt.Printf("complete -c qube -n '__fish_seen_subcommand_from qb; and test (count (commandline -opc)) -eq 2' -a '(qube qb --complete 2>/dev/null)'\n")
 		fmt.Printf("complete -c qube -n '__fish_seen_subcommand_from qb; and test (count (commandline -opc)) -eq 3' -a '(qube qb --complete (commandline -opc)[3] 2>/dev/null)'\n")
+		fmt.Printf("complete -c qube -n '__fish_seen_subcommand_from qb; and test (count (commandline -opc)) -ge 4' -a '(qube qb --complete (commandline -opc)[3] (commandline -opc)[4] (commandline -opc)[-1] 2>/dev/null)'\n")
 		for _, f := range globalFlags {
 			fmt.Printf("complete -c qube -l %s\n", f[2:])
 		}

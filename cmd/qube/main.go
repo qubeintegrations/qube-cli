@@ -180,6 +180,7 @@ QuickBooks operations (every one the host's v2 API has, read from its OpenAPI do
   qb [--refresh]                   every resource and its verbs (--refresh reads the list again)
   qb <resource>                    a resource's operations
   qb <resource> <verb> --help      an operation's flags (--help --json: its full schema)
+  qb <resource> <verb> --example   the API's example body, as JSON: save it, edit it, then --data @file
   qb <resource> <verb> [connection] [--flag value...] [--data JSON|@file|-] [--wait[=10m]]
                                    queue it: e.g. qb customers list --max-returned 5;
                                    --wait waits for QuickBooks' answer (every page) and prints it

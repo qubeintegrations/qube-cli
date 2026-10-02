@@ -8,7 +8,11 @@ import (
 	"time"
 )
 
-// With QUBE_SPEC naming a copy of a host's /api/v2/openapi.json, check the whole of it parses.
+// With QUBE_SPEC naming a copy of a host's /api/v2/openapi.json, check the whole of it parses
+// and every operation's help passes checkSpec:
+//
+//	curl -sf https://qubesync.com/api/v2/openapi.json -o /tmp/v2.json
+//	QUBE_SPEC=/tmp/v2.json go test ./internal/ops -run TestParseServedSpec -v
 func TestParseServedSpec(t *testing.T) {
 	path := os.Getenv("QUBE_SPEC")
 	if path == "" {
@@ -44,6 +48,9 @@ func TestParseServedSpec(t *testing.T) {
 			t.Errorf("%s %s: %v", op.Resource, op.Verb, err)
 		}
 	}
+	// Every operation's help, example and hints hold to the spec (spec_check_test.go).
+	checkSpec(t, ix)
+
 	call, err := ix.Find("customers", "list").Bind([]string{"c1", "--name-range", `{"from":"A","to":"M"}`, "--include", "Name", "--include", "Balance", "--max-returned", "5"}, nil, nil)
 	if err != nil {
 		t.Fatal(err)

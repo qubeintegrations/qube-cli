@@ -1,12 +1,13 @@
 package ops
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
-	"sort"
 	"strings"
 	"text/tabwriter"
+	"unicode/utf8"
 )
 
 // Usage is the operation's synopsis: `qube qb customers list <connection> [flags]`.
@@ -18,7 +19,10 @@ func (op *Op) Usage(prog string) string {
 	return s + " [flags]"
 }
 
-// WriteHelp describes the operation and every flag it takes.
+// helpWidth is the width help is wrapped to.
+const helpWidth = 96
+
+// WriteHelp describes the operation and every flag it takes, and ends with an example.
 func (op *Op) WriteHelp(w io.Writer, prog string) {
 	fmt.Fprintf(w, "Usage: %s\n\n", op.Usage(prog))
 	if op.Summary != "" {
@@ -26,7 +30,7 @@ func (op *Op) WriteHelp(w io.Writer, prog string) {
 	}
 	if d := strings.TrimSpace(op.Description); d != "" {
 		short, cut := brief(d, 700)
-		fmt.Fprintf(w, "\n%s\n", wrap(short, 96))
+		fmt.Fprintf(w, "\n%s\n", renderMarkdown(short, helpWidth))
 		if cut {
 			fmt.Fprintln(w, "(--help --json has the whole description.)")
 		}
@@ -41,26 +45,103 @@ func (op *Op) WriteHelp(w io.Writer, prog string) {
 	}
 	if len(query) > 0 {
 		fmt.Fprintln(w, "\nFlags:")
-		writeFlags(w, query)
+		writeFlags(w, query, queryRules(op.Query), nil)
 	}
 	if len(op.Body) > 0 {
 		req := ""
 		if op.BodyRequired {
 			req = ", required"
 		}
-		fmt.Fprintf(w, "\nBody (JSON%s): --data JSON|@file|- , and/or its fields as flags (a flag wins):\n", req)
-		writeFlags(w, body)
+		fmt.Fprintf(w, "\nBody (JSON%s): --data JSON|@file|-, and/or its fields as flags (a flag wins):\n", req)
+		writeFlags(w, body, op.bodyRules(), op.exampleFields())
 	}
-	fmt.Fprintln(w, "\n  --wait[=10m]  wait here for QuickBooks' answer (every page of an iterated query) and print it")
-	fmt.Fprintf(w, "\nThe operation's full parameters and body schema, as JSON: %s %s %s --help --json\n", prog, op.Resource, op.Verb)
+	fmt.Fprintln(w)
+	own := []Flag{{Name: "wait[=10m]", Param: Param{Type: "boolean", Description: "Wait here for QuickBooks' answer (every page of an iterated query) and print it."}}}
+	if len(op.Example) > 0 {
+		own = append(own, Flag{Name: "example", Param: Param{Type: "boolean", Description: "Print the example body below as JSON, to edit and send with --data @file."}})
+	}
+	writeFlags(w, own, rules{}, nil)
+	fmt.Fprintln(w, "\n--help --json prints the operation's full parameters and body schema, as JSON.")
+	op.writeExample(w, prog)
 }
 
-func writeFlags(w io.Writer, flags []Flag) {
-	tw := tabwriter.NewWriter(w, 0, 2, 2, ' ', 0)
-	for _, f := range flags {
-		fmt.Fprintf(tw, "  --%s %s\t%s\n", f.Name, typeHint(f.Param), flagDoc(f.Param))
+// bodyRules are the rules among the body's top-level fields.
+func (op *Op) bodyRules() rules {
+	var schema map[string]interface{}
+	if json.Unmarshal(op.Body, &schema) != nil {
+		return rules{}
 	}
-	tw.Flush()
+	return rulesOf(schema)
+}
+
+// The flag column is as wide as the longest flag up to this; a longer flag has its
+// description start on the next line.
+const maxFlagWidth = 32
+
+// writeFlags writes each flag and its description, wrapped in a column beside it. examples
+// are the spec's example values of body fields, by name.
+func writeFlags(w io.Writer, flags []Flag, r rules, examples map[string]*jnode) {
+	names := make([]string, len(flags))
+	longest := 0
+	for i, f := range flags {
+		names[i] = strings.TrimSpace("--" + f.Name + " " + typeHint(f.Param))
+		if n := utf8.RuneCountInString(names[i]); n > longest && n <= maxFlagWidth {
+			longest = n
+		}
+	}
+	col := 2 + longest + 2
+	for i, f := range flags {
+		doc := flagDoc(f.Param, r.hints(f.Param.Name, flagRef), examples[f.Param.Name], helpWidth-col)
+		writeEntry(w, names[i], doc, col)
+	}
+}
+
+// exampleFields are the top-level fields of the spec's example body, by name.
+func (op *Op) exampleFields() map[string]*jnode {
+	if len(op.Example) == 0 {
+		return nil
+	}
+	dec := json.NewDecoder(bytes.NewReader(op.Example))
+	dec.UseNumber()
+	root, err := readJNode(dec)
+	if err != nil || root.kind != 'o' {
+		return nil
+	}
+	out := map[string]*jnode{}
+	for i, k := range root.keys {
+		out[k] = root.kids[i]
+	}
+	return out
+}
+
+// flagRef names a field by its flag.
+func flagRef(apiName string) string { return "--" + flagName(apiName) }
+
+// keyRef names a field by its JSON key.
+func keyRef(apiName string) string { return apiName }
+
+// writeEntry writes "  name  doc", each of the doc's paragraphs wrapped in the column that
+// starts at col.
+func writeEntry(w io.Writer, name string, doc []string, col int) {
+	pad := strings.Repeat(" ", col)
+	head := "  " + name
+	var lines []string
+	for _, para := range doc {
+		lines = append(lines, wrapText(para, helpWidth, pad, pad)...)
+	}
+	switch {
+	case len(lines) == 0:
+		fmt.Fprintln(w, head)
+		return
+	case utf8.RuneCountInString(head)+2 <= col:
+		fmt.Fprintln(w, head+lines[0][utf8.RuneCountInString(head):])
+		lines = lines[1:]
+	default:
+		fmt.Fprintln(w, head)
+	}
+	for _, l := range lines {
+		fmt.Fprintln(w, l)
+	}
 }
 
 func typeHint(p Param) string {
@@ -73,44 +154,73 @@ func typeHint(p Param) string {
 			item = "value"
 		}
 		return strings.ToUpper(item) + "..."
+	case "string":
+		switch p.Format {
+		case "date":
+			return "DATE"
+		case "date-time":
+			return "DATETIME"
+		case "uri":
+			return "URL"
+		}
 	case "":
 		return "VALUE"
 	}
 	return strings.ToUpper(p.Type)
 }
 
-// flagDoc is one line: required, the first sentence of the description, then the shape.
-func flagDoc(p Param) string {
-	var parts []string
+// flagDoc is a flag's description, as paragraphs: required and the first sentence of its
+// description; the rules it takes part in; its values; and an object's shape, in width.
+func flagDoc(p Param, hints []string, example *jnode, width int) []string {
+	var out []string
+	first := docSentence(p.Description, len(hints) > 0)
 	if p.Required {
-		parts = append(parts, "(required)")
+		first = strings.TrimSpace("(required) " + first)
 	}
-	if s := firstSentence(p.Description); s != "" {
-		parts = append(parts, s)
+	if first != "" {
+		out = append(out, first)
+	}
+	if len(hints) > 0 {
+		out = append(out, "("+strings.Join(hints, "; ")+")")
 	}
 	switch {
 	case len(p.Enum) > 0:
-		parts = append(parts, "One of: "+enumList(p.Enum)+".")
+		out = append(out, "One of: "+enumList(p.Enum)+".")
 	case p.Type == "object" || p.Items == "object":
-		if keys := objectKeys(p.Schema, p.Type == "array"); keys != "" {
-			parts = append(parts, "JSON: "+keys)
+		if shape := shapeDoc(p.Schema, p.Type == "array", example, width); shape != "" {
+			out = append(out, shape)
 		}
 	}
 	if p.Type == "array" {
-		parts = append(parts, "(repeat the flag, or a JSON array)")
+		const repeat = "(repeat the flag, or a JSON array)"
+		if n := len(out); n > 0 && !strings.HasPrefix(out[n-1], "(") {
+			out[n-1] += " " + repeat
+		} else {
+			out = append(out, repeat)
+		}
 	}
-	return strings.Join(parts, " ")
+	return out
 }
 
-func firstSentence(s string) string {
-	s = strings.TrimSpace(strings.Split(strings.TrimSpace(s), "\n")[0])
-	if i := strings.Index(s, ". "); i >= 0 {
-		s = s[:i+1]
+// docSentence is the first sentence of a description, rendered and at most 200 characters.
+// With hints shown, the paragraphs the generator writes to state those same rules are
+// passed over (the hints say it shorter).
+func docSentence(desc string, hinted bool) string {
+	for _, b := range parseBlocks(desc) {
+		if b.kind == codeBlock || hinted && generatedNote(b.text) {
+			continue
+		}
+		if s := sentences(b.text); len(s) > 0 {
+			return clip(renderInline(s[0]), 200)
+		}
 	}
-	if r := []rune(s); len(r) > 110 {
-		s = string(r[:109]) + "…"
-	}
-	return s
+	return ""
+}
+
+// generatedNote says whether a paragraph is one of the generator's choice notes (see
+// rules.go), which hints restate.
+func generatedNote(text string) bool {
+	return choiceNote.MatchString(text) || combineNote.MatchString(text) || requiredCombineNote.MatchString(text)
 }
 
 func enumList(values []string) string {
@@ -120,88 +230,89 @@ func enumList(values []string) string {
 	return strings.Join(values[:8], ", ") + fmt.Sprintf(", … (%d; --help --json lists them)", len(values))
 }
 
-// objectKeys shows an object's fields: {"from", "to"}.
-func objectKeys(schema json.RawMessage, array bool) string {
-	var s struct {
-		Properties map[string]interface{} `json:"properties"`
-		Items      struct {
-			Properties map[string]interface{} `json:"properties"`
-		} `json:"items"`
-	}
+// shapeDoc shows an object's fields and its rules: `JSON: {"from", "to"}`, or for a list
+// `JSON: [{"account_ref", …}, ...]. In each, required: account_ref; at most one of: rate |
+// rate_percent.` The fields it requires come first, then those the spec's example sets,
+// then the rest, as many as fit on a line of width.
+func shapeDoc(schema json.RawMessage, array bool, example *jnode, width int) string {
+	var s map[string]interface{}
 	if json.Unmarshal(schema, &s) != nil {
 		return ""
 	}
-	props := s.Properties
 	if array {
-		props = s.Items.Properties
+		s, _ = s["items"].(map[string]interface{})
+		if example != nil && example.kind == 'a' && len(example.kids) > 0 {
+			example = example.kids[0]
+		}
 	}
-	if len(props) == 0 {
+	fields := objectFields(s)
+	if len(fields) == 0 {
 		return ""
 	}
-	keys := make([]string, 0, len(props))
-	for k := range props {
-		keys = append(keys, fmt.Sprintf("%q", k))
+	required := strs(s["required"])
+	ordered := append([]string{}, required...)
+	if example != nil && example.kind == 'o' {
+		for _, k := range example.keys {
+			if contains(fields, k) && !contains(ordered, k) {
+				ordered = append(ordered, k)
+			}
+		}
 	}
-	sort.Strings(keys)
-	if len(keys) > 6 {
-		keys = append(keys[:6], "…")
+	for _, f := range fields {
+		if !contains(ordered, f) {
+			ordered = append(ordered, f)
+		}
 	}
-	out := "{" + strings.Join(keys, ", ") + "}"
+	open, close := "JSON: {", "}"
 	if array {
-		out = "[" + out + ", ...]"
+		open, close = "JSON: [{", "}, ...]"
 	}
-	return out
-}
-
-// brief keeps whole paragraphs up to about max characters, and as much of the next one as
-// fits in whole sentences. It reports whether it left anything out.
-func brief(text string, max int) (string, bool) {
-	var kept []string
+	room := width - len(open) - len(close) - len(", …")
+	var keys []string
 	n := 0
-	for _, p := range strings.Split(text, "\n\n") {
-		if n+len(p) <= max {
-			kept = append(kept, p)
-			n += len(p) + 2
-			continue
+	for i, k := range ordered {
+		q := fmt.Sprintf("%q", k)
+		if len(keys) > 0 && (n+2+len(q) > room && i < len(ordered)-1 || n+2+len(q) > room+len(", …")) {
+			keys = append(keys, "…")
+			break
 		}
-		if room := max - n; room >= 150 {
-			cut := p[:room]
-			if i := strings.LastIndex(cut, ". "); i > 0 {
-				cut = cut[:i+1]
-			}
-			kept = append(kept, cut+" …")
-		}
-		return strings.Join(kept, "\n\n"), true
+		keys = append(keys, q)
+		n += len(q) + 2
 	}
-	return text, false
+	out := open + strings.Join(keys, ", ") + close
+	var notes []string
+	if len(required) > 0 {
+		notes = append(notes, "required: "+strings.Join(required, ", "))
+	}
+	notes = append(notes, rulesOf(s).all(keyRef)...)
+	if len(notes) == 0 {
+		return out
+	}
+	rest := strings.Join(notes, "; ")
+	if array {
+		return out + ". In each, " + rest + "."
+	}
+	return out + ". " + strings.ToUpper(rest[:1]) + rest[1:] + "."
 }
 
-// wrap re-flows each paragraph to width, leaving lists and code lines as they are.
-func wrap(text string, width int) string {
-	var out []string
-	for _, para := range strings.Split(text, "\n\n") {
-		if strings.HasPrefix(para, "* ") || strings.HasPrefix(para, "- ") || strings.HasPrefix(para, "    ") || strings.Contains(para, "\n* ") {
-			out = append(out, para)
-			continue
-		}
-		var lines []string
-		line := ""
-		for _, word := range strings.Fields(para) {
-			if line != "" && len(line)+1+len(word) > width {
-				lines = append(lines, line)
-				line = word
-			} else if line == "" {
-				line = word
-			} else {
-				line += " " + word
+// objectFields are an object's fields: its properties and those of its oneOf alternatives.
+func objectFields(s map[string]interface{}) []string {
+	props, _ := s["properties"].(map[string]interface{})
+	all := map[string]interface{}{}
+	for k, v := range props {
+		all[k] = v
+	}
+	branches, _ := s["oneOf"].([]interface{})
+	for _, b := range branches {
+		branch, _ := b.(map[string]interface{})
+		bp, _ := branch["properties"].(map[string]interface{})
+		for k, v := range bp {
+			if _, ok := all[k]; !ok {
+				all[k] = v
 			}
 		}
-		if line != "" {
-			lines = append(lines, line)
-		}
-		out = append(out, strings.Join(lines, "\n"))
 	}
-	return strings.Join(out, "\n\n")
+	return sortedKeys(all)
 }
 
 // Summary is a one-line view of an operation, for listings and --json.
