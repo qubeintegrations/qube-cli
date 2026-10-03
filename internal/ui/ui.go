@@ -73,14 +73,6 @@ func Usage(format string, a ...interface{}) {
 	os.Exit(ExitUsage)
 }
 
-// Mask shows a secret's shape without its value: sk_62pC…Xwo.
-func Mask(s string) string {
-	if len(s) <= 10 {
-		return strings.Repeat("•", len(s))
-	}
-	return s[:7] + "…" + s[len(s)-3:]
-}
-
 // OpenBrowser tries the platform opener; failing is fine, the URL is printed anyway.
 func OpenBrowser(u string) bool {
 	if os.Getenv("QUBE_NO_BROWSER") != "" {

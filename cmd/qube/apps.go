@@ -158,23 +158,30 @@ func (c *ctx) env(args []string) {
 		"QUBE_WEBHOOK_SECRET": creds.WebhookSecret,
 	}
 	if ui.JSON {
-		if *show {
-			ui.PrintJSON(map[string]interface{}{"app": creds.App, "env": lines})
-		} else {
-			ui.PrintJSON(map[string]interface{}{"app": creds.App, "env": map[string]string{"QUBE_URL": c.host, "QUBE_API_KEY": ui.Mask(creds.APIKey), "QUBE_WEBHOOK_SECRET": ui.Mask(creds.WebhookSecret)}})
-		}
 		if *write != "" {
 			if err := upsertEnv(*write, lines); err != nil {
 				fail(err)
 			}
 		}
+		out := map[string]interface{}{"app": creds.App}
+		if *show {
+			out["env"] = lines
+		} else {
+			// the secrets are named, never shown in part: --print is the way to see them
+			out["env"] = map[string]string{"QUBE_URL": c.host}
+			out["not_shown"] = secretKeys
+		}
+		if *write != "" {
+			out["written"] = *write
+		}
+		ui.PrintJSON(out)
 		return
 	}
 	if *write != "" {
 		if err := upsertEnv(*write, lines); err != nil {
 			fail(err)
 		}
-		fmt.Printf("Wrote QUBE_URL, QUBE_API_KEY (%s) and QUBE_WEBHOOK_SECRET (%s) for %q to %s\n", ui.Mask(creds.APIKey), ui.Mask(creds.WebhookSecret), creds.App.Name, *write)
+		fmt.Printf("Wrote QUBE_URL, QUBE_API_KEY and QUBE_WEBHOOK_SECRET for %q to %s\n", creds.App.Name, *write)
 		return
 	}
 	if *show {
@@ -183,11 +190,14 @@ func (c *ctx) env(args []string) {
 		}
 		return
 	}
-	fmt.Printf("App %q: QUBE_API_KEY=%s QUBE_WEBHOOK_SECRET=%s\n", creds.App.Name, ui.Mask(creds.APIKey), ui.Mask(creds.WebhookSecret))
+	fmt.Printf("App %q: QUBE_URL=%s; QUBE_API_KEY and QUBE_WEBHOOK_SECRET are not shown.\n", creds.App.Name, c.host)
 	fmt.Println("Use --write .env to store them, or --print to show them (eval \"$(qube env --print)\").")
 }
 
 var envKeys = []string{"QUBE_URL", "QUBE_API_KEY", "QUBE_WEBHOOK_SECRET"}
+
+// secretKeys are the env values no output shows any part of, unless --print asks for them.
+var secretKeys = []string{"QUBE_API_KEY", "QUBE_WEBHOOK_SECRET"}
 
 // upsertEnv replaces the QUBE_* lines of a dotenv file (or appends them), keeps every
 // other line byte-for-byte, and writes atomically so an interrupted write loses nothing.
