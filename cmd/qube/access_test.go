@@ -57,11 +57,11 @@ func TestUseConnectionByNameThenCommandsUseIt(t *testing.T) {
 	var got string
 	c := newAPITest(t, map[string]http.HandlerFunc{
 		"/api/v2/connections": connectionsHandler,
-		"/api/v2/connections/conn_2/queued_requests": func(w http.ResponseWriter, r *http.Request) {
+		"/api/v2/connections/conn_2/queued-requests": func(w http.ResponseWriter, r *http.Request) {
 			got = r.URL.Path
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"data": []interface{}{}})
 		},
-		"/api/v2/connections/conn_2/queued_requests/req_1": func(w http.ResponseWriter, r *http.Request) {
+		"/api/v2/connections/conn_2/queued-requests/req_1": func(w http.ResponseWriter, r *http.Request) {
 			got = r.URL.Path
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"data": map[string]interface{}{"id": "req_1"}})
 		},
@@ -78,16 +78,16 @@ func TestUseConnectionByNameThenCommandsUseIt(t *testing.T) {
 
 	c.connection = ""
 	_ = captureStdout(t, func() { c.requests([]string{"list"}) })
-	if got != "/api/v2/connections/conn_2/queued_requests" {
+	if got != "/api/v2/connections/conn_2/queued-requests" {
 		t.Fatalf("requests list went to %q", got)
 	}
 	_ = captureStdout(t, func() { c.requests([]string{"show", "req_1"}) })
-	if got != "/api/v2/connections/conn_2/queued_requests/req_1" {
+	if got != "/api/v2/connections/conn_2/queued-requests/req_1" {
 		t.Fatalf("requests show went to %q", got)
 	}
 	// a connection on the line still wins
 	_ = captureStdout(t, func() { c.requests([]string{"list", "conn_2"}) })
-	if got != "/api/v2/connections/conn_2/queued_requests" {
+	if got != "/api/v2/connections/conn_2/queued-requests" {
 		t.Fatalf("requests list conn_2 went to %q", got)
 	}
 }
@@ -139,7 +139,7 @@ func (c *ctx) connections2(t *testing.T, args ...string) {
 func TestWorkflowRunsTakesTheRunWhenAConnectionIsChosen(t *testing.T) {
 	var got string
 	c := newAPITest(t, map[string]http.HandlerFunc{
-		"/api/v2/connections/conn_1/workflow_runs/run_1": func(w http.ResponseWriter, r *http.Request) {
+		"/api/v2/connections/conn_1/workflow-runs/run_1": func(w http.ResponseWriter, r *http.Request) {
 			got = r.URL.Path
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"data": map[string]interface{}{"id": "run_1"}})
 		},
@@ -147,7 +147,7 @@ func TestWorkflowRunsTakesTheRunWhenAConnectionIsChosen(t *testing.T) {
 	setJSON(t, true)
 	c.connection = "conn_1"
 	_ = captureStdout(t, func() { c.workflows([]string{"runs", "run_1"}) })
-	if got != "/api/v2/connections/conn_1/workflow_runs/run_1" {
+	if got != "/api/v2/connections/conn_1/workflow-runs/run_1" {
 		t.Fatalf("went to %q", got)
 	}
 }

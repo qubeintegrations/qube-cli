@@ -241,7 +241,7 @@ func (c *ctx) connections(args []string) {
 		var out struct {
 			Data map[string]interface{} `json:"data"`
 		}
-		if err := cl.Do("POST", v2path("/connections/{connection_id}/onboarding_url", conn), nil, nil, &out); err != nil {
+		if err := cl.Do("POST", v2path("/connections/{connection_id}/onboarding-url", conn), nil, nil, &out); err != nil {
 			fail(err)
 		}
 		if ui.JSON {
@@ -306,7 +306,7 @@ func (c *ctx) requests(args []string) {
 		if *sortDir != "" {
 			q.Set("sort_direction", *sortDir)
 		}
-		if err := cl.Do("GET", v2path("/connections/{connection_id}/queued_requests", conn), q, nil, &out); err != nil {
+		if err := cl.Do("GET", v2path("/connections/{connection_id}/queued-requests", conn), q, nil, &out); err != nil {
 			fail(err)
 		}
 		if ui.JSON {
@@ -327,7 +327,7 @@ func (c *ctx) requests(args []string) {
 		var out struct {
 			Data map[string]interface{} `json:"data"`
 		}
-		if err := cl.Do("GET", v2path("/connections/{connection_id}/queued_requests/{id}", conn, rest[0]), nil, nil, &out); err != nil {
+		if err := cl.Do("GET", v2path("/connections/{connection_id}/queued-requests/{id}", conn, rest[0]), nil, nil, &out); err != nil {
 			fail(err)
 		}
 		ui.PrintJSON(out.Data)
@@ -337,7 +337,7 @@ func (c *ctx) requests(args []string) {
 		var out struct {
 			Data interface{} `json:"data"`
 		}
-		if err := cl.Do("GET", v2path("/connections/{connection_id}/queued_requests/{id}/pages", conn, rest[0]), nil, nil, &out); err != nil {
+		if err := cl.Do("GET", v2path("/connections/{connection_id}/queued-requests/{id}/pages", conn, rest[0]), nil, nil, &out); err != nil {
 			fail(err)
 		}
 		ui.PrintJSON(out.Data)
@@ -349,7 +349,7 @@ func (c *ctx) requests(args []string) {
 		var out struct {
 			Data map[string]interface{} `json:"data"`
 		}
-		if err := cl.Do("POST", v2path("/connections/{connection_id}/queued_requests/{id}/discard", connection, id), nil, nil, &out); err != nil {
+		if err := cl.Do("POST", v2path("/connections/{connection_id}/queued-requests/{id}/discard", connection, id), nil, nil, &out); err != nil {
 			var apiErr *api.Error
 			if errors.As(err, &apiErr) && apiErr.Status == 409 {
 				if msg := discardConflict(id, apiErr.Message); msg != "" {
@@ -372,7 +372,7 @@ func (c *ctx) requests(args []string) {
 		ui.Info("watching %s (Ctrl-C stops)", conn)
 		for {
 			var out requestPage
-			if err := cl.Do("GET", v2path("/connections/{connection_id}/queued_requests", conn), url.Values{"page_size": {"10"}}, nil, &out); err != nil {
+			if err := cl.Do("GET", v2path("/connections/{connection_id}/queued-requests", conn), url.Values{"page_size": {"10"}}, nil, &out); err != nil {
 				fail(err)
 			}
 			for i := len(out.Data) - 1; i >= 0; i-- {
@@ -856,7 +856,7 @@ func (c *ctx) workflows(args []string) {
 			var out struct {
 				Data map[string]interface{} `json:"data"`
 			}
-			if err := cl.Do("GET", v2path("/workflow_templates/{key}", args[1]), nil, nil, &out); err != nil {
+			if err := cl.Do("GET", v2path("/workflow-templates/{key}", args[1]), nil, nil, &out); err != nil {
 				fail(err)
 			}
 			ui.PrintJSON(out.Data)
@@ -865,7 +865,7 @@ func (c *ctx) workflows(args []string) {
 		var out struct {
 			Data []map[string]interface{} `json:"data"`
 		}
-		if err := cl.Do("GET", v2path("/workflow_templates"), nil, nil, &out); err != nil {
+		if err := cl.Do("GET", v2path("/workflow-templates"), nil, nil, &out); err != nil {
 			fail(err)
 		}
 		if ui.JSON {
@@ -906,7 +906,7 @@ func (c *ctx) workflows(args []string) {
 			Data      map[string]interface{} `json:"data"`
 			Installed []string               `json:"installed"`
 		}
-		if err := cl.Do("POST", v2path("/workflow_templates/{key}/install", fs.Arg(0)), nil, body, &out); err != nil {
+		if err := cl.Do("POST", v2path("/workflow-templates/{key}/install", fs.Arg(0)), nil, body, &out); err != nil {
 			fail(err)
 		}
 		if ui.JSON {
@@ -949,7 +949,7 @@ func (c *ctx) workflows(args []string) {
 		cl, app := c.appClient()
 		c.confirmWrite(app, fmt.Sprintf("Run workflow %s on connection %s", fs.Arg(0), conn))
 		var out map[string]interface{}
-		if err := cl.Do("POST", v2path("/connections/{connection_id}/workflow_runs", conn), nil, body, &out); err != nil {
+		if err := cl.Do("POST", v2path("/connections/{connection_id}/workflow-runs", conn), nil, body, &out); err != nil {
 			fail(err)
 		}
 		d, _ := out["data"].(map[string]interface{})
@@ -1003,7 +1003,7 @@ func (c *ctx) workflows(args []string) {
 				q.Set("limit", strconv.Itoa(*limit))
 			}
 			var out map[string]interface{}
-			if err := cl.Do("GET", v2path("/connections/{connection_id}/workflow_runs/{run_id}/events", connection, run), q, nil, &out); err != nil {
+			if err := cl.Do("GET", v2path("/connections/{connection_id}/workflow-runs/{run_id}/events", connection, run), q, nil, &out); err != nil {
 				fail(err)
 			}
 			ui.PrintJSON(out)
@@ -1016,7 +1016,7 @@ func (c *ctx) workflows(args []string) {
 			var out struct {
 				Data map[string]interface{} `json:"data"`
 			}
-			if err := cl.Do("GET", v2path("/connections/{connection_id}/workflow_runs/{run_id}", connection, run), nil, nil, &out); err != nil {
+			if err := cl.Do("GET", v2path("/connections/{connection_id}/workflow-runs/{run_id}", connection, run), nil, nil, &out); err != nil {
 				fail(err)
 			}
 			ui.PrintJSON(out.Data)
@@ -1031,7 +1031,7 @@ func (c *ctx) workflows(args []string) {
 			var out struct {
 				Data []map[string]interface{} `json:"data"`
 			}
-			if err := cl.Do("GET", v2path("/connections/{connection_id}/workflow_runs", connection), q, nil, &out); err != nil {
+			if err := cl.Do("GET", v2path("/connections/{connection_id}/workflow-runs", connection), q, nil, &out); err != nil {
 				fail(err)
 			}
 			if ui.JSON {
@@ -1056,7 +1056,7 @@ func (c *ctx) workflows(args []string) {
 		cl, app := c.appClient()
 		c.confirmWrite(app, fmt.Sprintf("Answer %q on run %s", option, run))
 		var out map[string]interface{}
-		if err := cl.Do("POST", v2path("/connections/{connection_id}/workflow_runs/{run_id}/decisions", conn, run), nil, body, &out); err != nil {
+		if err := cl.Do("POST", v2path("/connections/{connection_id}/workflow-runs/{run_id}/decisions", conn, run), nil, body, &out); err != nil {
 			fail(err)
 		}
 		d, _ := out["data"].(map[string]interface{})
@@ -1083,7 +1083,7 @@ func (c *ctx) workflows(args []string) {
 		var out struct {
 			Data map[string]interface{} `json:"data"`
 		}
-		if err := cl.Do("POST", v2path("/connections/{connection_id}/workflow_runs/{run_id}/cancel", conn, rest[0]), nil, body, &out); err != nil {
+		if err := cl.Do("POST", v2path("/connections/{connection_id}/workflow-runs/{run_id}/cancel", conn, rest[0]), nil, body, &out); err != nil {
 			fail(err)
 		}
 		if ui.JSON {
@@ -1098,7 +1098,7 @@ func (c *ctx) workflows(args []string) {
 		id := rest[0]
 		cl, app := c.appClient()
 		c.confirmDelete(app, fmt.Sprintf("Delete run %s and its step history?", id))
-		if err := cl.Do("DELETE", v2path("/connections/{connection_id}/workflow_runs/{run_id}", conn, id), nil, nil, nil); err != nil {
+		if err := cl.Do("DELETE", v2path("/connections/{connection_id}/workflow-runs/{run_id}", conn, id), nil, nil, nil); err != nil {
 			fail(err)
 		}
 		if ui.JSON {

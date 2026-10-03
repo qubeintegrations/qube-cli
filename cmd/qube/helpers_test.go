@@ -300,11 +300,11 @@ func setJSON(t *testing.T, v bool) {
 
 // TestRequestsDiscardHitsEndpoint drives `requests discard` end to end against a fake
 // server standing in for both /api/cli (app resolution, credentials) and /api/v2, to
-// check the command reaches POST /api/v2/connections/<connection>/queued_requests/<id>/discard.
+// check the command reaches POST /api/v2/connections/<connection>/queued-requests/<id>/discard.
 func TestRequestsDiscardHitsEndpoint(t *testing.T) {
 	var gotMethod, gotPath string
 	c := newAPITest(t, map[string]http.HandlerFunc{
-		"/api/v2/connections/conn_1/queued_requests/req_1/discard": func(w http.ResponseWriter, r *http.Request) {
+		"/api/v2/connections/conn_1/queued-requests/req_1/discard": func(w http.ResponseWriter, r *http.Request) {
 			gotMethod, gotPath = r.Method, r.URL.Path
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"data": map[string]interface{}{"id": "req_1", "state": "discarded"},
@@ -315,7 +315,7 @@ func TestRequestsDiscardHitsEndpoint(t *testing.T) {
 	setJSON(t, false)
 	out := captureStdout(t, func() { c.requests([]string{"discard", "conn_1", "req_1"}) })
 
-	if gotMethod != "POST" || gotPath != "/api/v2/connections/conn_1/queued_requests/req_1/discard" {
+	if gotMethod != "POST" || gotPath != "/api/v2/connections/conn_1/queued-requests/req_1/discard" {
 		t.Fatalf("server saw method=%s path=%s", gotMethod, gotPath)
 	}
 	if !strings.Contains(out, `Discarded req_1.`) {

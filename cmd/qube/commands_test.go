@@ -130,7 +130,7 @@ func TestConnectionsQWCWritesFile(t *testing.T) {
 func TestConnectionsOnboardingURL(t *testing.T) {
 	var gotMethod, gotPath string
 	c := newAPITest(t, map[string]http.HandlerFunc{
-		"/api/v2/connections/conn_1/onboarding_url": func(w http.ResponseWriter, r *http.Request) {
+		"/api/v2/connections/conn_1/onboarding-url": func(w http.ResponseWriter, r *http.Request) {
 			gotMethod, gotPath = r.Method, r.URL.Path
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"data": map[string]interface{}{
@@ -143,7 +143,7 @@ func TestConnectionsOnboardingURL(t *testing.T) {
 	})
 	setJSON(t, false)
 	out := captureStdout(t, func() { c.connections([]string{"onboarding-url", "conn_1"}) })
-	if gotMethod != "POST" || gotPath != "/api/v2/connections/conn_1/onboarding_url" {
+	if gotMethod != "POST" || gotPath != "/api/v2/connections/conn_1/onboarding-url" {
 		t.Fatalf("method=%s path=%s", gotMethod, gotPath)
 	}
 	if !strings.Contains(out, "https://onboard/xyz") || !strings.Contains(out, "2026-01-01T00:00:00Z") {
@@ -188,7 +188,7 @@ func TestConnectionsPasswordStdin(t *testing.T) {
 func TestRequestsListQuery(t *testing.T) {
 	var gotQuery url.Values
 	c := newAPITest(t, map[string]http.HandlerFunc{
-		"/api/v2/connections/conn_1/queued_requests": func(w http.ResponseWriter, r *http.Request) {
+		"/api/v2/connections/conn_1/queued-requests": func(w http.ResponseWriter, r *http.Request) {
 			gotQuery = r.URL.Query()
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"data": []map[string]interface{}{}})
 		},
@@ -205,14 +205,14 @@ func TestRequestsListQuery(t *testing.T) {
 func TestRequestsShow(t *testing.T) {
 	var gotMethod, gotPath string
 	c := newAPITest(t, map[string]http.HandlerFunc{
-		"/api/v2/connections/conn_1/queued_requests/req_1": func(w http.ResponseWriter, r *http.Request) {
+		"/api/v2/connections/conn_1/queued-requests/req_1": func(w http.ResponseWriter, r *http.Request) {
 			gotMethod, gotPath = r.Method, r.URL.Path
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"data": map[string]interface{}{"id": "req_1"}})
 		},
 	})
 	setJSON(t, false)
 	out := captureStdout(t, func() { c.requests([]string{"show", "conn_1", "req_1"}) })
-	if gotMethod != "GET" || gotPath != "/api/v2/connections/conn_1/queued_requests/req_1" {
+	if gotMethod != "GET" || gotPath != "/api/v2/connections/conn_1/queued-requests/req_1" {
 		t.Fatalf("method=%s path=%s", gotMethod, gotPath)
 	}
 	if !strings.Contains(out, `"req_1"`) {
@@ -223,14 +223,14 @@ func TestRequestsShow(t *testing.T) {
 func TestRequestsPages(t *testing.T) {
 	var gotMethod, gotPath string
 	c := newAPITest(t, map[string]http.HandlerFunc{
-		"/api/v2/connections/conn_1/queued_requests/req_1/pages": func(w http.ResponseWriter, r *http.Request) {
+		"/api/v2/connections/conn_1/queued-requests/req_1/pages": func(w http.ResponseWriter, r *http.Request) {
 			gotMethod, gotPath = r.Method, r.URL.Path
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"data": []interface{}{map[string]interface{}{"page": float64(1)}}})
 		},
 	})
 	setJSON(t, false)
 	out := captureStdout(t, func() { c.requests([]string{"pages", "conn_1", "req_1"}) })
-	if gotMethod != "GET" || gotPath != "/api/v2/connections/conn_1/queued_requests/req_1/pages" {
+	if gotMethod != "GET" || gotPath != "/api/v2/connections/conn_1/queued-requests/req_1/pages" {
 		t.Fatalf("method=%s path=%s", gotMethod, gotPath)
 	}
 	if !strings.Contains(out, `"page"`) {
@@ -445,7 +445,7 @@ func TestWorkflowsInstall(t *testing.T) {
 	var gotMethod, gotPath string
 	var gotBody map[string]interface{}
 	c := newAPITest(t, map[string]http.HandlerFunc{
-		"/api/v2/workflow_templates/tmpl1/install": func(w http.ResponseWriter, r *http.Request) {
+		"/api/v2/workflow-templates/tmpl1/install": func(w http.ResponseWriter, r *http.Request) {
 			gotMethod, gotPath = r.Method, r.URL.Path
 			_ = json.NewDecoder(r.Body).Decode(&gotBody)
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
@@ -456,7 +456,7 @@ func TestWorkflowsInstall(t *testing.T) {
 	})
 	setJSON(t, false)
 	out := captureStdout(t, func() { c.workflows([]string{"install", "tmpl1", "--publish", "--as", "k2"}) })
-	if gotMethod != "POST" || gotPath != "/api/v2/workflow_templates/tmpl1/install" {
+	if gotMethod != "POST" || gotPath != "/api/v2/workflow-templates/tmpl1/install" {
 		t.Fatalf("method=%s path=%s", gotMethod, gotPath)
 	}
 	if gotBody["publish"] != true || gotBody["as"] != "k2" {
@@ -471,7 +471,7 @@ func TestWorkflowsRunsEventsQuery(t *testing.T) {
 	var gotMethod, gotPath string
 	var gotQuery url.Values
 	c := newAPITest(t, map[string]http.HandlerFunc{
-		"/api/v2/connections/conn_1/workflow_runs/run_1/events": func(w http.ResponseWriter, r *http.Request) {
+		"/api/v2/connections/conn_1/workflow-runs/run_1/events": func(w http.ResponseWriter, r *http.Request) {
 			gotMethod, gotPath = r.Method, r.URL.Path
 			gotQuery = r.URL.Query()
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"data": []interface{}{}, "next_after": nil})
@@ -481,7 +481,7 @@ func TestWorkflowsRunsEventsQuery(t *testing.T) {
 	captureStdout(t, func() {
 		c.workflows([]string{"runs", "conn_1", "run_1", "--events", "--after", "7.3", "--limit", "50"})
 	})
-	if gotMethod != "GET" || gotPath != "/api/v2/connections/conn_1/workflow_runs/run_1/events" {
+	if gotMethod != "GET" || gotPath != "/api/v2/connections/conn_1/workflow-runs/run_1/events" {
 		t.Fatalf("method=%s path=%s", gotMethod, gotPath)
 	}
 	if gotQuery.Get("after") != "7.3" || gotQuery.Get("limit") != "50" {
@@ -493,7 +493,7 @@ func TestWorkflowsCancel(t *testing.T) {
 	var gotMethod, gotPath string
 	var gotBody map[string]interface{}
 	c := newAPITest(t, map[string]http.HandlerFunc{
-		"/api/v2/connections/conn_1/workflow_runs/run_1/cancel": func(w http.ResponseWriter, r *http.Request) {
+		"/api/v2/connections/conn_1/workflow-runs/run_1/cancel": func(w http.ResponseWriter, r *http.Request) {
 			gotMethod, gotPath = r.Method, r.URL.Path
 			_ = json.NewDecoder(r.Body).Decode(&gotBody)
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"data": map[string]interface{}{"id": "run_1", "state": "cancelled"}})
@@ -501,7 +501,7 @@ func TestWorkflowsCancel(t *testing.T) {
 	})
 	setJSON(t, false)
 	out := captureStdout(t, func() { c.workflows([]string{"cancel", "conn_1", "run_1", "--reason", "r"}) })
-	if gotMethod != "POST" || gotPath != "/api/v2/connections/conn_1/workflow_runs/run_1/cancel" {
+	if gotMethod != "POST" || gotPath != "/api/v2/connections/conn_1/workflow-runs/run_1/cancel" {
 		t.Fatalf("method=%s path=%s", gotMethod, gotPath)
 	}
 	if gotBody["reason"] != "r" {
@@ -515,7 +515,7 @@ func TestWorkflowsCancel(t *testing.T) {
 func TestWorkflowsDeleteRun(t *testing.T) {
 	var gotMethod, gotPath string
 	c := newAPITest(t, map[string]http.HandlerFunc{
-		"/api/v2/connections/conn_1/workflow_runs/run_1": func(w http.ResponseWriter, r *http.Request) {
+		"/api/v2/connections/conn_1/workflow-runs/run_1": func(w http.ResponseWriter, r *http.Request) {
 			gotMethod, gotPath = r.Method, r.URL.Path
 			w.WriteHeader(http.StatusNoContent)
 		},
@@ -523,7 +523,7 @@ func TestWorkflowsDeleteRun(t *testing.T) {
 	setJSON(t, false)
 	c.yes = true
 	out := captureStdout(t, func() { c.workflows([]string{"delete-run", "conn_1", "run_1"}) })
-	if gotMethod != "DELETE" || gotPath != "/api/v2/connections/conn_1/workflow_runs/run_1" {
+	if gotMethod != "DELETE" || gotPath != "/api/v2/connections/conn_1/workflow-runs/run_1" {
 		t.Fatalf("method=%s path=%s", gotMethod, gotPath)
 	}
 	if !strings.Contains(out, "Deleted run run_1.") {

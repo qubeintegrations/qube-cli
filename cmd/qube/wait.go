@@ -146,7 +146,7 @@ func (c *ctx) waitForRequest(cl *api.Client, connection string, first map[string
 		var out struct {
 			Data map[string]interface{} `json:"data"`
 		}
-		if err := cl.Do("GET", v2path("/connections/{connection_id}/queued_requests/{id}", connection, id), nil, nil, &out); err != nil {
+		if err := cl.Do("GET", v2path("/connections/{connection_id}/queued-requests/{id}", connection, id), nil, nil, &out); err != nil {
 			fail(err)
 		}
 		current = out.Data
@@ -165,7 +165,7 @@ func (c *ctx) requestPages(cl *api.Client, connection, id string) []map[string]i
 	var out struct {
 		Data []map[string]interface{} `json:"data"`
 	}
-	if err := cl.Do("GET", v2path("/connections/{connection_id}/queued_requests/{id}/pages", connection, id), nil, nil, &out); err != nil {
+	if err := cl.Do("GET", v2path("/connections/{connection_id}/queued-requests/{id}/pages", connection, id), nil, nil, &out); err != nil {
 		fail(err)
 	}
 	return out.Data
@@ -274,7 +274,7 @@ func (c *ctx) waitForRun(cl *api.Client, connection string, run map[string]inter
 		var out struct {
 			Data map[string]interface{} `json:"data"`
 		}
-		if err := cl.Do("GET", v2path("/connections/{connection_id}/workflow_runs/{run_id}", connection, id), nil, nil, &out); err != nil {
+		if err := cl.Do("GET", v2path("/connections/{connection_id}/workflow-runs/{run_id}", connection, id), nil, nil, &out); err != nil {
 			fail(err)
 		}
 		run = out.Data

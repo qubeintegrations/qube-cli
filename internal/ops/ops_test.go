@@ -51,7 +51,7 @@ const fixture = `{
         "callbacks": {"answered": {}}
       }
     },
-    "/connections/{connection_id}/queued_requests": {
+    "/connections/{connection_id}/queued-requests": {
       "get": {"operationId": "listQueuedRequests", "summary": "List queued requests"}
     },
     "/connections/{connection_id}/../etc": {

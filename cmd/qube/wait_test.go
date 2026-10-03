@@ -66,7 +66,7 @@ func TestQBWaitPrintsTheAnswer(t *testing.T) {
 			w.WriteHeader(201)
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"data": map[string]interface{}{"id": "req_1", "state": "waiting"}})
 		},
-		"/api/v2/connections/conn_1/queued_requests/req_1": replies(
+		"/api/v2/connections/conn_1/queued-requests/req_1": replies(
 			map[string]interface{}{"id": "req_1", "state": "sent"},
 			map[string]interface{}{"id": "req_1", "state": "response_received", "iteration_state": "not_applicable", "response_json": map[string]interface{}{"status": "success", "data": []string{"Northwind"}}},
 		),
@@ -84,9 +84,9 @@ func TestWaitFollowsEveryPage(t *testing.T) {
 	p2wait := map[string]interface{}{"id": "p2", "page": 2, "state": "waiting"}
 	p2 := map[string]interface{}{"id": "p2", "page": 2, "state": "response_received", "iteration_state": "done", "response_json": map[string]interface{}{"data": []string{"B"}}}
 	c := newAPITest(t, map[string]http.HandlerFunc{
-		"/api/v2/connections/conn_1/queued_requests/p1/pages": replies([]interface{}{p1, p2wait}),
-		"/api/v2/connections/conn_1/queued_requests/p2":       replies(p2),
-		"/api/v2/connections/conn_1/queued_requests/p2/pages": replies([]interface{}{p1, p2}),
+		"/api/v2/connections/conn_1/queued-requests/p1/pages": replies([]interface{}{p1, p2wait}),
+		"/api/v2/connections/conn_1/queued-requests/p2":       replies(p2),
+		"/api/v2/connections/conn_1/queued-requests/p2/pages": replies([]interface{}{p1, p2}),
 	})
 	cl, _ := c.appClient()
 	pages, ok := c.waitForRequest(cl, "conn_1", p1, time.Minute)
@@ -98,7 +98,7 @@ func TestWaitFollowsEveryPage(t *testing.T) {
 func TestWaitReportsAFailure(t *testing.T) {
 	fastWait(t)
 	c := newAPITest(t, map[string]http.HandlerFunc{
-		"/api/v2/connections/conn_1/queued_requests/req_1": replies(
+		"/api/v2/connections/conn_1/queued-requests/req_1": replies(
 			map[string]interface{}{"id": "req_1", "state": "retryable", "error": map[string]interface{}{"user_message": "QuickBooks is not running"}},
 			map[string]interface{}{"id": "req_1", "state": "error", "error": map[string]interface{}{"error_type": "quickbooks_business_error", "error_code": "3100"}},
 		),
@@ -116,11 +116,11 @@ func TestWaitReportsAFailure(t *testing.T) {
 func TestWorkflowRunWaitStopsForADecision(t *testing.T) {
 	fastWait(t)
 	c := newAPITest(t, map[string]http.HandlerFunc{
-		"/api/v2/connections/conn_1/workflow_runs": func(w http.ResponseWriter, r *http.Request) {
+		"/api/v2/connections/conn_1/workflow-runs": func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(201)
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"data": map[string]interface{}{"id": "run_1", "workflow": "sync", "state": "running"}})
 		},
-		"/api/v2/connections/conn_1/workflow_runs/run_1": replies(
+		"/api/v2/connections/conn_1/workflow-runs/run_1": replies(
 			map[string]interface{}{"id": "run_1", "state": "running"},
 			map[string]interface{}{"id": "run_1", "state": "awaiting_input", "prompt": map[string]interface{}{"id": "name_taken", "options": []string{"rename", "use_existing"}}},
 		),
