@@ -74,27 +74,82 @@ func (op *Op) bodyRules() rules {
 	return rulesOf(schema)
 }
 
-// The flag column is as wide as the longest flag up to this; a longer flag has its
-// description start on the next line.
-const maxFlagWidth = 32
+// The flag column is as wide as the longest flag (with its indent) up to this; a longer
+// flag has its description start on the next line.
+const maxFlagWidth = 34
 
-// writeFlags writes each flag and its description, wrapped in a column beside it. examples
-// are the spec's example values of body fields, by name.
+// entry is one entry of a flag list: a flag, a field with no flag of its own (a body field
+// named like one of qube's flags), or a heading.
+type entry struct {
+	indent  int
+	name    string // "--flag TYPE", a JSON key, or a heading's text
+	flag    *Flag
+	heading bool
+	ruled   bool // the flag is in a choice block, which states the rule its description's note does
+}
+
+// writeFlags writes the flags that stand alone, then each exclusive choice among them as a
+// block: "Exactly one of:" (or "At most one of:"), then each alternative's flags, the
+// alternatives separated by "or:". A reader sees which flags go together and which exclude
+// each other without piecing it together flag by flag. Every description is wrapped in one
+// column. examples are the spec's example values of body fields, by name.
 func writeFlags(w io.Writer, flags []Flag, r rules, examples map[string]*jnode) {
-	names := make([]string, len(flags))
+	blocks, rest := r.split()
+	byName := map[string]*Flag{}
+	for i := range flags {
+		byName[flags[i].Param.Name] = &flags[i]
+	}
+	inBlock := map[string]bool{}
+	for _, c := range blocks {
+		for _, alt := range c.alts {
+			for _, f := range alt {
+				inBlock[f] = true
+			}
+		}
+	}
+	var entries []entry
+	for i := range flags {
+		if !inBlock[flags[i].Param.Name] {
+			entries = append(entries, entry{indent: 2, name: flagLabel(flags[i]), flag: &flags[i]})
+		}
+	}
+	for _, c := range blocks {
+		entries = append(entries, entry{indent: 2, name: c.heading(), heading: true})
+		for i, alt := range c.alts {
+			if i > 0 {
+				entries = append(entries, entry{indent: 2, name: "or:", heading: true})
+			}
+			for _, field := range alt {
+				if f, ok := byName[field]; ok {
+					entries = append(entries, entry{indent: 4, name: flagLabel(*f), flag: f, ruled: true})
+				} else {
+					entries = append(entries, entry{indent: 4, name: field})
+				}
+			}
+		}
+	}
 	longest := 0
-	for i, f := range flags {
-		names[i] = strings.TrimSpace("--" + f.Name + " " + typeHint(f.Param))
-		if n := utf8.RuneCountInString(names[i]); n > longest && n <= maxFlagWidth {
+	for _, e := range entries {
+		if n := e.indent + utf8.RuneCountInString(e.name); !e.heading && n > longest && n <= maxFlagWidth {
 			longest = n
 		}
 	}
-	col := 2 + longest + 2
-	for i, f := range flags {
-		doc := flagDoc(f.Param, r.hints(f.Param.Name, flagRef), examples[f.Param.Name], helpWidth-col)
-		writeEntry(w, names[i], doc, col)
+	col := longest + 2
+	for _, e := range entries {
+		var doc []string
+		switch {
+		case e.heading:
+		case e.flag == nil:
+			doc = []string{"(no flag of its own: set it with --data)"}
+		default:
+			p := e.flag.Param
+			doc = flagDoc(p, rest.hints(p.Name, flagRef), e.ruled, examples[p.Name], helpWidth-col)
+		}
+		writeEntry(w, strings.Repeat(" ", e.indent)+e.name, doc, col)
 	}
 }
+
+func flagLabel(f Flag) string { return strings.TrimSpace("--" + f.Name + " " + typeHint(f.Param)) }
 
 // exampleFields are the top-level fields of the spec's example body, by name.
 func (op *Op) exampleFields() map[string]*jnode {
@@ -120,11 +175,10 @@ func flagRef(apiName string) string { return "--" + flagName(apiName) }
 // keyRef names a field by its JSON key.
 func keyRef(apiName string) string { return apiName }
 
-// writeEntry writes "  name  doc", each of the doc's paragraphs wrapped in the column that
-// starts at col.
-func writeEntry(w io.Writer, name string, doc []string, col int) {
+// writeEntry writes "  name  doc" (head carries its own indent), each of the doc's
+// paragraphs wrapped in the column that starts at col.
+func writeEntry(w io.Writer, head string, doc []string, col int) {
 	pad := strings.Repeat(" ", col)
-	head := "  " + name
 	var lines []string
 	for _, para := range doc {
 		lines = append(lines, wrapText(para, helpWidth, pad, pad)...)
@@ -171,9 +225,10 @@ func typeHint(p Param) string {
 
 // flagDoc is a flag's description, as paragraphs: required and the first sentence of its
 // description; the rules it takes part in; its values; and an object's shape, in width.
-func flagDoc(p Param, hints []string, example *jnode, width int) []string {
+// ruled says a choice block around the flag states its rule.
+func flagDoc(p Param, hints []string, ruled bool, example *jnode, width int) []string {
 	var out []string
-	first := docSentence(p.Description, len(hints) > 0)
+	first := docSentence(p.Description, ruled || len(hints) > 0)
 	if p.Required {
 		first = strings.TrimSpace("(required) " + first)
 	}
@@ -203,11 +258,11 @@ func flagDoc(p Param, hints []string, example *jnode, width int) []string {
 }
 
 // docSentence is the first sentence of a description, rendered and at most 200 characters.
-// With hints shown, the paragraphs the generator writes to state those same rules are
-// passed over (the hints say it shorter).
-func docSentence(desc string, hinted bool) string {
+// With the rules shown (as hints, or by a choice block), the paragraphs the generator writes
+// to state those same rules are passed over (the help says it shorter).
+func docSentence(desc string, ruled bool) string {
 	for _, b := range parseBlocks(desc) {
-		if b.kind == codeBlock || hinted && generatedNote(b.text) {
+		if b.kind == codeBlock || ruled && generatedNote(b.text) {
 			continue
 		}
 		if s := sentences(b.text); len(s) > 0 {

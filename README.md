@@ -56,19 +56,23 @@ qube qb txn-void execute <connection> --txn-id 1A2B-3C --txn-void-type Invoice
 qube qb items list <connection> --iterator --max-returned 100 --wait   # every page
 ```
 
-- Query parameters and the body's top-level fields are flags (`max_returned` is `--max-returned`). A boolean
-  alone means true (`--iterator`). An object takes JSON, and a list takes the flag once per value or a
-  JSON array. Any of these also takes `@file`.
+- Query parameters and the body's top-level fields are flags (`max_returned` is `--max-returned`), the
+  fields of each alternative of a `oneOf` body included (`--txn-data-ext-type SalesOrder --txn-id ...`
+  on `data-exts update`). A boolean alone means true (`--iterator`). An object takes JSON, and a list
+  takes the flag once per value or a JSON array. Any of these also takes `@file`.
 - `--data JSON|@file|-` sends a whole body. Field flags are merged over it.
 - `--help` is built from the spec too. Descriptions are rendered from their Markdown (links print as
-  `text (url)`), and each flag shows the rules it is part of, read from the body's JSON Schema: which
-  fields exclude each other (`(at most one of: --rate | --rate-percent | --price-level-ref)`, or
-  `exactly one of` for a required choice), which lists combine (`(can be combined with
-  --journal-credit-line)`), and an object's keys with the required ones named. Query parameters
-  can't carry such a rule in OpenAPI, so for them it is read from the sentence the API's generator
-  writes in each description ("Choose at most one of: ..."), as it is for a list that combines only
-  optionally. Help ends with an example: the API's own example body for the operation, as a
-  `--data` command (shortened when it is long), or a query's required parameters.
+  `text (url)`), and the flags show the rules they are part of, read from the body's JSON Schema. The
+  flags that stand alone come first; then each choice (a `oneOf`, or fields that exclude each other)
+  is a block, `Exactly one of:` or `At most one of:`, listing each alternative's flags with `or:`
+  between them, so `data-exts update` shows the list-object, transaction and other shapes side by
+  side. Other rules sit beside the flags they bind: which lists combine (`(can be combined with
+  --journal-credit-line)`), a choice inside an alternative (a query's name filters), and an
+  object's keys with the required ones named (`at most one of: rate | rate_percent`). Query
+  parameters can't carry such a rule in OpenAPI, so for them it is read from the sentence the
+  API's generator writes in each description ("Choose at most one of: ..."), as it is for a list
+  that combines only optionally. Help ends with an example: the API's own example body for the
+  operation, as a `--data` command (shortened when it is long), or a query's required parameters.
 - `--example` prints that example body as indented JSON, to save, edit and send with `--data @file`.
 - Shell completion (`qube completion bash|zsh|fish`) completes resources, verbs, an operation's flags
   and the values of a flag that lists them (`--active-status <TAB>`), all from the cached list, so a

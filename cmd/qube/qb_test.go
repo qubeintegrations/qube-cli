@@ -190,3 +190,68 @@ func TestCompletionScripts(t *testing.T) {
 		}
 	}
 }
+
+// subsetSpec serves the qube spec's subset internal/ops tests use (data-exts update among
+// it), and records the request an operation sends.
+func subsetSpecTest(t *testing.T) (*ctx, *qbSeen) {
+	t.Helper()
+	spec, err := ioutil.ReadFile("../../internal/ops/testdata/qbxml_subset.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := &qbSeen{}
+	c := newAPITest(t, map[string]http.HandlerFunc{
+		"/api/v2/openapi.json": func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(spec) },
+		"/api/v2/connections/conn_1/data-exts": func(w http.ResponseWriter, r *http.Request) {
+			body, _ := ioutil.ReadAll(r.Body)
+			seen.method, seen.path, seen.body = r.Method, r.URL.Path, string(body)
+			w.WriteHeader(201)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"data": map[string]interface{}{"id": "req_1", "state": "waiting", "request_types": []string{"DataExtModRq"}}})
+		},
+	})
+	setenv(t, "QUBE_CACHE_DIR", t.TempDir())
+	setJSON(t, false)
+	return c, seen
+}
+
+// The help of an operation whose body is a oneOf lists the flags every shape takes, then
+// each shape's flags as an alternative of an "Exactly one of" block.
+func TestQBHelpShowsEachShapeOfAOneOf(t *testing.T) {
+	c, _ := subsetSpecTest(t)
+	help := captureStdout(t, func() { c.qb([]string{"data-exts", "update", "--help"}) })
+	body := help[strings.Index(help, "Body (JSON"):]
+	var flags []string
+	for _, l := range strings.Split(body, "\n")[1:] {
+		if l == "" {
+			break
+		}
+		if !strings.HasPrefix(l, "      ") { // a flag or a heading, not a description's line
+			flags = append(flags, strings.Fields(l)[0])
+		}
+	}
+	want := []string{
+		"--data-ext-name", "--data-ext-value", "--owner-id", "--request-id",
+		"Exactly", "--list-data-ext-type", "--list-obj-ref",
+		"or:", "--txn-data-ext-type", "--txn-id", "--txn-line-id",
+		"or:", "--other-data-ext-type",
+	}
+	if strings.Join(flags, " ") != strings.Join(want, " ") {
+		t.Fatalf("body flags = %q\nwant %q\n%s", flags, want, body)
+	}
+	if !strings.Contains(body, "\n  Exactly one of these groups (the flags in a group combine):\n    --list-data-ext-type STRING ") {
+		t.Fatalf("help:\n%s", body)
+	}
+}
+
+// A field of one oneOf alternative is a flag like any other: a sales order's data
+// extension is addressed with --txn-data-ext-type and --txn-id, no --data needed.
+func TestQBOneOfBranchFieldsAreFlags(t *testing.T) {
+	c, seen := subsetSpecTest(t)
+	_ = captureStdout(t, func() {
+		c.qb([]string{"data-exts", "update", "conn_1", "--data-ext-name", "Color", "--data-ext-value", "Blue", "--owner-id", "0", "--txn-data-ext-type", "SalesOrder", "--txn-id", "1A-123"})
+	})
+	want := `{"data_ext_name":"Color","data_ext_value":"Blue","owner_id":"0","txn_data_ext_type":"SalesOrder","txn_id":"1A-123"}`
+	if seen.method != "PUT" || seen.path != "/api/v2/connections/conn_1/data-exts" || seen.body != want {
+		t.Fatalf("server saw %s %s %s\nwant body %s", seen.method, seen.path, seen.body, want)
+	}
+}

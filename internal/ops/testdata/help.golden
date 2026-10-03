@@ -41,11 +41,6 @@ Flags:
                                    JSON: {"full_name", "full_name_with_children", …}. Exactly
                                    one of: list_id | full_name | list_id_with_children |
                                    full_name_with_children.
-  --report-date-macro STRING       The time period covered by this report.
-                                   (at most one of: --report-period | --report-date-macro)
-                                   One of: All, LastMonth, LastMonthToDate, LastQuarter,
-                                   LastQuarterToDate, LastWeek, LastWeekToDate, LastYear, … (24;
-                                   --help --json lists them).
   --report-detail-level-filter STRING
                                    The level of detail to include in the report.
                                    One of: All, AllExceptSummary, SummaryOnly.
@@ -61,23 +56,6 @@ Flags:
                                    JSON: {"full_name", "full_name_with_children", …}. Exactly
                                    one of: item_type_filter | list_id | full_name |
                                    list_id_with_children | full_name_with_children.
-  --report-modified-date-range-filter OBJECT
-                                   Returns reports that were modified between these two dates
-                                   (inclusive).
-                                   (at most one of: --report-modified-date-range-filter |
-                                   --report-modified-date-range-macro)
-                                   JSON: {"from_report_modified_date", …}
-  --report-modified-date-range-macro STRING
-                                   The time period covered by this report.
-                                   (at most one of: --report-modified-date-range-filter |
-                                   --report-modified-date-range-macro)
-                                   One of: All, LastMonth, LastMonthToDate, LastQuarter,
-                                   LastQuarterToDate, LastWeek, LastWeekToDate, LastYear, … (24;
-                                   --help --json lists them).
-  --report-period OBJECT           If you omit both to_report_date and from_report_date, the
-                                   report will cover the current fiscal year to date.
-                                   (at most one of: --report-period | --report-date-macro)
-                                   JSON: {"from_report_date", "to_report_date"}
   --report-posting-status-filter STRING
                                    Allows you to query for posting reports, non-posting reports,
                                    or reports that are either one.
@@ -88,6 +66,26 @@ Flags:
   --webhook-url URL                Where QuBe Sync POSTs the answered request (this same
                                    document with response_json filled in), signed with
                                    X-QUBE-Signature.
+  At most one of:
+    --report-period OBJECT         If you omit both to_report_date and from_report_date, the
+                                   report will cover the current fiscal year to date.
+                                   JSON: {"from_report_date", "to_report_date"}
+  or:
+    --report-date-macro STRING     The time period covered by this report.
+                                   One of: All, LastMonth, LastMonthToDate, LastQuarter,
+                                   LastQuarterToDate, LastWeek, LastWeekToDate, LastYear, … (24;
+                                   --help --json lists them).
+  At most one of:
+    --report-modified-date-range-filter OBJECT
+                                   Returns reports that were modified between these two dates
+                                   (inclusive).
+                                   JSON: {"from_report_modified_date", …}
+  or:
+    --report-modified-date-range-macro STRING
+                                   The time period covered by this report.
+                                   One of: All, LastMonth, LastMonthToDate, LastQuarter,
+                                   LastQuarterToDate, LastWeek, LastWeekToDate, LastYear, … (24;
+                                   --help --json lists them).
 
   --wait[=10m]  Wait here for QuickBooks' answer (every page of an iterated query) and print it.
 
@@ -115,62 +113,50 @@ significantly improve the performance of the CustomerQuery.
 (--help --json has the whole description.)
 
 Flags:
-  --request-id STRING            Your own label for the request, sent to QuickBooks as its qbXML
-                                 requestID and echoed in the raw answer (response_xml);
-                                 optional, since the answer's webhook already carries the
-                                 request's id.
-  --iterator                     Page through every result: QuBe Sync asks QuickBooks for each
-                                 page in turn and sends each to your webhook_url as it arrives,
-                                 all with the same id.
-  --list-id STRING...            list_id and full_name both identify a list object.
-                                 (at most one of: --list-id | --full-name | (--active-status,
-                                 --from-modified-date, --max-returned, --name-contains,
-                                 --name-ends-with, --name-range, --name-starts-with,
-                                 --to-modified-date))
-                                 (repeat the flag, or a JSON array)
-  --full-name STRING...          full_name (along with list_id) is a way to identify a list
-                                 object.
-                                 (at most one of: --list-id | --full-name | (--active-status,
-                                 --from-modified-date, --max-returned, --name-contains,
-                                 --name-ends-with, --name-range, --name-starts-with,
-                                 --to-modified-date))
-                                 (repeat the flag, or a JSON array)
-  --max-returned INTEGER         Limits the number of objects that a query returns.
-                                 (not with --list-id or --full-name)
-  --active-status STRING         Used in filters to select list objects based on whether or not
-                                 they are currently enabled for use by QuickBooks.
-                                 (not with --list-id or --full-name)
-                                 One of: ActiveOnly, All, InactiveOnly.
-  --from-modified-date DATETIME  Filters results to objects modified on or after this timestamp.
-                                 (not with --list-id or --full-name)
-  --to-modified-date DATETIME    Filters results to objects modified on or before this
-                                 timestamp.
-                                 (not with --list-id or --full-name)
-  --name-starts-with STRING      Filters according to the object’s Name.
-                                 (not with --list-id or --full-name; at most one of:
-                                 (--name-contains, --name-ends-with, --name-starts-with) |
-                                 --name-range)
-  --name-contains STRING         Filters according to the object’s Name.
-                                 (not with --list-id or --full-name; at most one of:
-                                 (--name-contains, --name-ends-with, --name-starts-with) |
-                                 --name-range)
-  --name-ends-with STRING        Filters according to the object’s Name.
-                                 (not with --list-id or --full-name; at most one of:
-                                 (--name-contains, --name-ends-with, --name-starts-with) |
-                                 --name-range)
-  --name-range OBJECT            Filters according to the object’s Name.
-                                 (not with --list-id or --full-name; at most one of:
-                                 (--name-contains, --name-ends-with, --name-starts-with) |
-                                 --name-range)
-                                 JSON: {"from", "to"}
-  --include STRING...            One of: AccountNumber, AdditionalContactRef,
-                                 AdditionalNotesRet, AltContact, AltPhone, Balance, BillAddress,
-                                 BillAddressBlock, … (63; --help --json lists them). (repeat the
-                                 flag, or a JSON array)
-  --owner-id STRING...           owner_id identifies who owns the data extension. (repeat the
-                                 flag, or a JSON array)
-  --webhook-url URL              Where QuBe Sync POSTs the answered request (this same document
-                                 with response_json filled in), signed with X-QUBE-Signature.
+  --request-id STRING              Your own label for the request, sent to QuickBooks as its
+                                   qbXML requestID and echoed in the raw answer (response_xml);
+                                   optional, since the answer's webhook already carries the
+                                   request's id.
+  --iterator                       Page through every result: QuBe Sync asks QuickBooks for each
+                                   page in turn and sends each to your webhook_url as it
+                                   arrives, all with the same id.
+  --include STRING...              One of: AccountNumber, AdditionalContactRef,
+                                   AdditionalNotesRet, AltContact, AltPhone, Balance,
+                                   BillAddress, BillAddressBlock, … (63; --help --json lists
+                                   them). (repeat the flag, or a JSON array)
+  --owner-id STRING...             owner_id identifies who owns the data extension. (repeat the
+                                   flag, or a JSON array)
+  --webhook-url URL                Where QuBe Sync POSTs the answered request (this same
+                                   document with response_json filled in), signed with
+                                   X-QUBE-Signature.
+  At most one of these groups (the flags in a group combine):
+    --list-id STRING...            list_id and full_name both identify a list object. (repeat
+                                   the flag, or a JSON array)
+  or:
+    --full-name STRING...          full_name (along with list_id) is a way to identify a list
+                                   object. (repeat the flag, or a JSON array)
+  or:
+    --active-status STRING         Used in filters to select list objects based on whether or
+                                   not they are currently enabled for use by QuickBooks.
+                                   One of: ActiveOnly, All, InactiveOnly.
+    --from-modified-date DATETIME  Filters results to objects modified on or after this
+                                   timestamp.
+    --max-returned INTEGER         Limits the number of objects that a query returns.
+    --name-contains STRING         Filters according to the object’s Name.
+                                   (at most one of: (--name-contains, --name-ends-with,
+                                   --name-starts-with) | --name-range)
+    --name-ends-with STRING        Filters according to the object’s Name.
+                                   (at most one of: (--name-contains, --name-ends-with,
+                                   --name-starts-with) | --name-range)
+    --name-range OBJECT            Filters according to the object’s Name.
+                                   (at most one of: (--name-contains, --name-ends-with,
+                                   --name-starts-with) | --name-range)
+                                   JSON: {"from", "to"}
+    --name-starts-with STRING      Filters according to the object’s Name.
+                                   (at most one of: (--name-contains, --name-ends-with,
+                                   --name-starts-with) | --name-range)
+    --to-modified-date DATETIME    Filters results to objects modified on or before this
+                                   timestamp.
 
   --wait[=10m]  Wait here for QuickBooks' answer (every page of an iterated query) and print it.
 
@@ -198,38 +184,29 @@ Flags:
                      response_json filled in), signed with X-QUBE-Signature.
 
 Body (JSON, required): --data JSON|@file|-, and/or its fields as flags (a flag wins):
-  --data-ext-name STRING        (required) The name of the data extension.
-  --data-ext-value STRING       (required) The data in this field.
-  --owner-id STRING             (required) owner_id identifies who owns the data extension.
-  --list-data-ext-type STRING   The type of list object (e.g. Customer) that this data extension
-                                is attached to.
-                                (not with --txn-data-ext-type, --txn-id, --txn-line-id or
-                                --other-data-ext-type, and one alternative is required)
-                                One of: Account, Customer, Employee, Item, OtherName, Vendor.
-  --list-obj-ref OBJECT         Refers to a list object.
-                                (not with --txn-data-ext-type, --txn-id, --txn-line-id or
-                                --other-data-ext-type, and one alternative is required)
-                                JSON: {"full_name", "list_id"}
-  --other-data-ext-type STRING  Not supported.
-                                (exactly one of: (--list-data-ext-type, --list-obj-ref) |
-                                (--txn-data-ext-type, --txn-id, --txn-line-id) |
-                                --other-data-ext-type)
-                                One of: Company.
-  --request-id STRING           Your own label for the request, sent to QuickBooks as its qbXML
-                                requestID and echoed in the raw answer (response_xml); optional,
-                                since the answer's webhook already carries the request's id.
-  --txn-data-ext-type STRING    The type of transaction that the data extension belongs to.
-                                (not with --list-data-ext-type, --list-obj-ref or
-                                --other-data-ext-type, and one alternative is required)
-                                One of: ARRefundCreditCard, Bill, BillPaymentCheck,
-                                BillPaymentCreditCard, BuildAssembly, Charge, Check,
-                                CreditCardCharge, … (22; --help --json lists them).
-  --txn-id STRING               txn_id is the unique QuickBooks identifier for a transaction.
-                                (not with --list-data-ext-type, --list-obj-ref or
-                                --other-data-ext-type, and one alternative is required)
-  --txn-line-id STRING          Identification number of the transaction line.
-                                (not with --list-data-ext-type, --list-obj-ref or
-                                --other-data-ext-type, and one alternative is required)
+  --data-ext-name STRING          (required) The name of the data extension.
+  --data-ext-value STRING         (required) The data in this field.
+  --owner-id STRING               (required) owner_id identifies who owns the data extension.
+  --request-id STRING             Your own label for the request, sent to QuickBooks as its
+                                  qbXML requestID and echoed in the raw answer (response_xml);
+                                  optional, since the answer's webhook already carries the
+                                  request's id.
+  Exactly one of these groups (the flags in a group combine):
+    --list-data-ext-type STRING   The type of list object (e.g. Customer) that this data
+                                  extension is attached to.
+                                  One of: Account, Customer, Employee, Item, OtherName, Vendor.
+    --list-obj-ref OBJECT         Refers to a list object.
+                                  JSON: {"full_name", "list_id"}
+  or:
+    --txn-data-ext-type STRING    The type of transaction that the data extension belongs to.
+                                  One of: ARRefundCreditCard, Bill, BillPaymentCheck,
+                                  BillPaymentCreditCard, BuildAssembly, Charge, Check,
+                                  CreditCardCharge, … (22; --help --json lists them).
+    --txn-id STRING               txn_id is the unique QuickBooks identifier for a transaction.
+    --txn-line-id STRING          Identification number of the transaction line.
+  or:
+    --other-data-ext-type STRING  Not supported.
+                                  One of: Company.
 
   --wait[=10m]  Wait here for QuickBooks' answer (every page of an iterated query) and print it.
   --example     Print the example body below as JSON, to edit and send with --data @file.
@@ -565,20 +542,9 @@ Flags:
                      response_json filled in), signed with X-QUBE-Signature.
 
 Body (JSON, required): --data JSON|@file|-, and/or its fields as flags (a flag wins):
-  --currency-ref OBJECT            A currency record defines how QuickBooks stores and displays
-                                   a currency.
-                                   (at most one of: --is-home-currency-adjustment |
-                                   (--currency-ref, --exchange-rate,
-                                   --is-amounts-entered-in-home-currency))
-                                   JSON: {"full_name", "list_id"}
   --def-macro STRING               def_macro lets you assign a reusable name to a returned
                                    txn_id or txn_line_id so later requests can reference it with
                                    useMacro.
-  --exchange-rate NUMBER           exchange_rate is the rate from this currency to the company’s
-                                   home currency at AsOfDate.
-                                   (at most one of: --is-home-currency-adjustment |
-                                   (--currency-ref, --exchange-rate,
-                                   --is-amounts-entered-in-home-currency))
   --external-guid STRING           Allows for the attachment of a user defined GUID value.
   --include-ret-element STRING...  One of: CurrencyRef, DataExtRet, EditSequence, ExchangeRate,
                                    ExternalGUID, IsAdjustment, IsAmountsEnteredInHomeCurrency,
@@ -587,17 +553,6 @@ Body (JSON, required): --data JSON|@file|-, and/or its fields as flags (a flag w
   --is-adjustment                  When a change is an “adjustment,” the original information is
                                    retained, usually so an accountant can see the effects of the
                                    adjustment.
-  --is-amounts-entered-in-home-currency
-                                   Flag that indicates the amount being entered is in the home
-                                   currency.
-                                   (at most one of: --is-home-currency-adjustment |
-                                   (--currency-ref, --exchange-rate,
-                                   --is-amounts-entered-in-home-currency))
-  --is-home-currency-adjustment    Indicates whether the transaction is using a home currency or
-                                   foreign currency.
-                                   (at most one of: --is-home-currency-adjustment |
-                                   (--currency-ref, --exchange-rate,
-                                   --is-amounts-entered-in-home-currency))
   --journal-credit-line OBJECT...  If no amount is included in the first credit line (or debit
                                    line) of a journal entry in the QuickBooks user interface,
                                    then subsequent SDK queries on that JournalEntry object will
@@ -622,6 +577,18 @@ Body (JSON, required): --data JSON|@file|-, and/or its fields as flags (a flag w
                                    optional, since the answer's webhook already carries the
                                    request's id.
   --txn-date DATE                  The date of the transaction.
+  At most one of these groups (the flags in a group combine):
+    --is-home-currency-adjustment  Indicates whether the transaction is using a home currency or
+                                   foreign currency.
+  or:
+    --currency-ref OBJECT          A currency record defines how QuickBooks stores and displays
+                                   a currency.
+                                   JSON: {"full_name", "list_id"}
+    --exchange-rate NUMBER         exchange_rate is the rate from this currency to the company’s
+                                   home currency at AsOfDate.
+    --is-amounts-entered-in-home-currency
+                                   Flag that indicates the amount being entered is in the home
+                                   currency.
 
   --wait[=10m]  Wait here for QuickBooks' answer (every page of an iterated query) and print it.
   --example     Print the example body below as JSON, to edit and send with --data @file.
@@ -682,48 +649,48 @@ Flags:
                      response_json filled in), signed with X-QUBE-Signature.
 
 Body (JSON, required): --data JSON|@file|-, and/or its fields as flags (a flag wins):
-  --customer-ref OBJECT            (required) customer_ref identifies a customer or customer
-                                   job.
-                                   JSON: {"full_name", "list_id"}
-  --applied-to-txn-add OBJECT...   (exactly one of: --is-auto-apply | --applied-to-txn-add)
-                                   JSON: [{"txn_id", "discount_account_ref", …}, ...]. In each,
-                                   required: txn_id. (repeat the flag, or a JSON array)
-  --ar-account-ref OBJECT          ar_account_ref points to an Accounts Receivable account.
-                                   JSON: {"full_name", "list_id"}
-  --credit-card-txn-info OBJECT    Contains data from the credit card transaction used in the
-                                   payment.
-                                   JSON: {"credit_card_txn_input_info", …}. Required:
-                                   credit_card_txn_input_info, credit_card_txn_result_info.
-  --def-macro STRING               def_macro lets you assign a reusable name to a returned
-                                   txn_id or txn_line_id so later requests can reference it with
-                                   useMacro.
-  --deposit-to-account-ref OBJECT  Refers to the account where these funds will be (or have
-                                   been) deposited.
-                                   JSON: {"full_name", "list_id"}
-  --exchange-rate NUMBER           exchange_rate is the rate from this currency to the company’s
-                                   home currency at AsOfDate.
-  --external-guid STRING           Allows for the attachment of a user defined GUID value.
-  --include-ret-element STRING...  One of: ARAccountRef, AppliedToTxnRet, CreditCardTxnInfo,
-                                   CurrencyRef, CustomerRef, DataExtRet, DepositToAccountRef,
-                                   EditSequence, … (24; --help --json lists them). (repeat the
-                                   flag, or a JSON array)
-  --is-auto-apply                  If is_auto_apply is true, QuickBooks applies total_amount to
-                                   any outstanding transaction that exactly matches
-                                   total_amount.
-                                   (exactly one of: --is-auto-apply | --applied-to-txn-add)
-  --memo STRING                    The beginning of this memo will appear in reports that show
-                                   details of this receive payment.
-  --payment-method-ref OBJECT      payment_method_ref identifies how a payment is made (for
-                                   example, cash, check, or card type).
-                                   JSON: {"full_name", "list_id"}
-  --ref-number STRING              ref_number is a user-managed transaction reference (for
-                                   example, a check number).
-  --request-id STRING              Your own label for the request, sent to QuickBooks as its
-                                   qbXML requestID and echoed in the raw answer (response_xml);
-                                   optional, since the answer's webhook already carries the
-                                   request's id.
-  --total-amount NUMBER            Total amount of money received.
-  --txn-date DATE                  The date of the transaction.
+  --customer-ref OBJECT             (required) customer_ref identifies a customer or customer
+                                    job.
+                                    JSON: {"full_name", "list_id"}
+  --ar-account-ref OBJECT           ar_account_ref points to an Accounts Receivable account.
+                                    JSON: {"full_name", "list_id"}
+  --credit-card-txn-info OBJECT     Contains data from the credit card transaction used in the
+                                    payment.
+                                    JSON: {"credit_card_txn_input_info", …}. Required:
+                                    credit_card_txn_input_info, credit_card_txn_result_info.
+  --def-macro STRING                def_macro lets you assign a reusable name to a returned
+                                    txn_id or txn_line_id so later requests can reference it
+                                    with useMacro.
+  --deposit-to-account-ref OBJECT   Refers to the account where these funds will be (or have
+                                    been) deposited.
+                                    JSON: {"full_name", "list_id"}
+  --exchange-rate NUMBER            exchange_rate is the rate from this currency to the
+                                    company’s home currency at AsOfDate.
+  --external-guid STRING            Allows for the attachment of a user defined GUID value.
+  --include-ret-element STRING...   One of: ARAccountRef, AppliedToTxnRet, CreditCardTxnInfo,
+                                    CurrencyRef, CustomerRef, DataExtRet, DepositToAccountRef,
+                                    EditSequence, … (24; --help --json lists them). (repeat the
+                                    flag, or a JSON array)
+  --memo STRING                     The beginning of this memo will appear in reports that show
+                                    details of this receive payment.
+  --payment-method-ref OBJECT       payment_method_ref identifies how a payment is made (for
+                                    example, cash, check, or card type).
+                                    JSON: {"full_name", "list_id"}
+  --ref-number STRING               ref_number is a user-managed transaction reference (for
+                                    example, a check number).
+  --request-id STRING               Your own label for the request, sent to QuickBooks as its
+                                    qbXML requestID and echoed in the raw answer (response_xml);
+                                    optional, since the answer's webhook already carries the
+                                    request's id.
+  --total-amount NUMBER             Total amount of money received.
+  --txn-date DATE                   The date of the transaction.
+  Exactly one of:
+    --is-auto-apply                 If is_auto_apply is true, QuickBooks applies total_amount to
+                                    any outstanding transaction that exactly matches
+                                    total_amount.
+  or:
+    --applied-to-txn-add OBJECT...  JSON: [{"txn_id", "discount_account_ref", …}, ...]. In each,
+                                    required: txn_id. (repeat the flag, or a JSON array)
 
   --wait[=10m]  Wait here for QuickBooks' answer (every page of an iterated query) and print it.
   --example     Print the example body below as JSON, to edit and send with --data @file.
@@ -791,21 +758,17 @@ Body (JSON, required): --data JSON|@file|-, and/or its fields as flags (a flag w
                                    depending on the request.
                                    JSON: {"full_name", "list_id"}
   --notes STRING                   Additional information.
-  --odometer-end NUMBER            Odometer reading at the end of the trip.
-                                   (exactly one of: (--odometer-end, --odometer-start) |
-                                   --total-miles)
-  --odometer-start NUMBER          Odometer reading at the start of the trip.
-                                   (exactly one of: (--odometer-end, --odometer-start) |
-                                   --total-miles)
   --request-id STRING              Your own label for the request, sent to QuickBooks as its
                                    qbXML requestID and echoed in the raw answer (response_xml);
                                    optional, since the answer's webhook already carries the
                                    request's id.
-  --total-miles NUMBER             Total trip miles.
-                                   (exactly one of: (--odometer-end, --odometer-start) |
-                                   --total-miles)
   --trip-end-date DATE             Date the trip ended.
   --trip-start-date DATE           Date the trip began.
+  Exactly one of these groups (the flags in a group combine):
+    --odometer-end NUMBER          Odometer reading at the end of the trip.
+    --odometer-start NUMBER        Odometer reading at the start of the trip.
+  or:
+    --total-miles NUMBER           Total trip miles.
 
   --wait[=10m]  Wait here for QuickBooks' answer (every page of an iterated query) and print it.
   --example     Print the example body below as JSON, to edit and send with --data @file.

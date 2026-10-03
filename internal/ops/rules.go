@@ -304,13 +304,78 @@ func queryRules(params []Param) rules {
 	return r
 }
 
+// split separates the exclusive choices, which help shows as blocks of alternatives, from
+// the rules it shows beside each flag: required "at least one of" sets, repeating choices,
+// loose exclusions, and a choice among fields an earlier block already lists (the name
+// filters inside a query's filter set). A choice with the same alternatives as an earlier
+// one (a rule the spec writes twice) is left out.
+func (r rules) split() ([]choice, rules) {
+	var blocks []choice
+	rest := rules{combos: r.combos, excludes: r.excludes}
+	inBlock := map[string]bool{}
+	for _, c := range r.choices {
+		dup, nested := false, false
+		for _, b := range blocks {
+			dup = dup || sameAlts(b.alts, c.alts)
+		}
+		for _, alt := range c.alts {
+			for _, f := range alt {
+				nested = nested || inBlock[f]
+			}
+		}
+		switch {
+		case dup:
+		case c.atLeast || nested:
+			rest.choices = append(rest.choices, c)
+		default:
+			blocks = append(blocks, c)
+			for _, alt := range c.alts {
+				for _, f := range alt {
+					inBlock[f] = true
+				}
+			}
+		}
+	}
+	return blocks, rest
+}
+
+func sameAlts(a, b [][]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for _, x := range a {
+		found := false
+		for _, y := range b {
+			found = found || sameSet(x, y)
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
+// heading introduces a choice's block in help.
+func (c choice) heading() string {
+	lead := "At most one of"
+	if c.required {
+		lead = "Exactly one of"
+	}
+	for _, alt := range c.alts {
+		if len(alt) > 1 {
+			return lead + " these groups (the flags in a group combine):"
+		}
+	}
+	return lead + ":"
+}
+
 // hints are the rules a field takes part in, each a phrase: "at most one of: a | b".
 // name writes a field's name (as a flag, or as a JSON key).
 func (r rules) hints(field string, name func(string) string) []string {
 	var out []string
 	for _, c := range r.choices {
 		if c.has(field) {
-			out = append(out, c.hint(field, name))
+			out = append(out, c.phrase(name))
 		}
 	}
 	for _, c := range r.combos {
@@ -377,38 +442,6 @@ func (c choice) has(field string) bool {
 		}
 	}
 	return false
-}
-
-// longHint is how long a choice's phrase may be before a member of one of its sets is told
-// only what it excludes.
-const longHint = 120
-
-// hint is the choice as one of its fields sees it: the whole phrase, or when that is long
-// and the field is one of a set (a query's eight filters), the fields it excludes.
-func (c choice) hint(field string, name func(string) string) string {
-	full := c.phrase(name)
-	if c.atLeast || len(full) <= longHint {
-		return full
-	}
-	var others []string
-	inSet := false
-	for _, alt := range c.alts {
-		if contains(alt, field) {
-			inSet = len(alt) > 1
-			continue
-		}
-		for _, f := range alt {
-			others = append(others, name(f))
-		}
-	}
-	if !inSet {
-		return full
-	}
-	s := "not with " + joinOr(others)
-	if c.required {
-		s += ", and one alternative is required"
-	}
-	return s
 }
 
 // phrase: "at most one of: a | b | (c, d)", a parenthesized set being fields that go together.

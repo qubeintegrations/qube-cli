@@ -351,22 +351,28 @@ func checkExample(t *testing.T, where string, op *Op, help string) {
 	}
 }
 
-// checkHints: every field of a choice shows the rule beside its flag, naming the fields it
-// excludes; every list of a repeating choice says what it combines with; an object's
-// required keys are named. The fields are found in the schema directly (and, where only the
-// generator's prose says it, in that prose), not by the code under test.
+// checkHints: every field of a choice is listed in a block of alternatives apart from the
+// fields it excludes, or shows the rule beside its flag naming them; every list of a
+// repeating choice says what it combines with; an object's required keys are named. The
+// fields are found in the schema directly (and, where only the generator's prose says it,
+// in that prose), and the blocks in the rendered text, not by the code under test.
 func checkHints(t *testing.T, where string, op *Op, help string) {
 	t.Helper()
 	var body map[string]interface{}
 	_ = json.Unmarshal(op.Body, &body)
+	blocks := choiceBlocks(help)
 	for member, excluded := range choiceMembers(body) {
-		block := flagBlock(help, flagRef(member))
-		if !hasChoiceHint(block) {
-			t.Errorf("%s: %s is in a choice; its help says nothing of it: %q", where, flagRef(member), block)
+		flag := flagRef(member)
+		block := flagBlock(help, flag)
+		at, inBlock := blocks[flag]
+		if !inBlock && !hasChoiceHint(block) {
+			t.Errorf("%s: %s is in a choice; its help says nothing of it: %q", where, flag, block)
 		}
 		for _, x := range excluded {
-			if !mentions(block, flagRef(x)) {
-				t.Errorf("%s: %s excludes %s; its help doesn't say: %q", where, flagRef(member), flagRef(x), block)
+			other, ok := blocks[flagRef(x)]
+			apart := inBlock && ok && other.block == at.block && other.alt != at.alt
+			if !apart && !mentions(block, flagRef(x)) {
+				t.Errorf("%s: %s excludes %s; its help doesn't say: %q", where, flag, flagRef(x), block)
 			}
 		}
 	}
@@ -392,7 +398,7 @@ func checkHints(t *testing.T, where string, op *Op, help string) {
 		}
 		desc, _ := s["description"].(string)
 		if strings.Contains(desc, "Choose at most one of:") || strings.Contains(desc, "Choose exactly one of:") {
-			if !hasChoiceHint(block) {
+			if _, inBlock := blocks[flagRef(name)]; !inBlock && !hasChoiceHint(block) {
 				t.Errorf("%s: %s's description names a choice; its help shows none: %q", where, flagRef(name), block)
 			}
 		}
@@ -471,16 +477,19 @@ func choiceMembers(schema map[string]interface{}) map[string][]string {
 	return out
 }
 
-// flagBlock is a flag's entry in help, its lines joined by single spaces.
+// flagBlock is a flag's entry in help, its lines joined by single spaces: the line the flag
+// starts (at any indent) and those indented further below it.
 func flagBlock(help, flag string) string {
 	lines := strings.Split(help, "\n")
 	for i, l := range lines {
-		if l != "  "+flag && !strings.HasPrefix(l, "  "+flag+" ") {
+		trimmed := strings.TrimLeft(l, " ")
+		indent := len(l) - len(trimmed)
+		if indent < 2 || trimmed != flag && !strings.HasPrefix(trimmed, flag+" ") {
 			continue
 		}
 		block := []string{l}
 		for _, next := range lines[i+1:] {
-			if !strings.HasPrefix(next, "    ") {
+			if len(next)-len(strings.TrimLeft(next, " ")) <= indent || strings.TrimSpace(next) == "" {
 				break
 			}
 			block = append(block, next)
@@ -488,6 +497,36 @@ func flagBlock(help, flag string) string {
 		return strings.Join(strings.Fields(strings.Join(block, " ")), " ")
 	}
 	return ""
+}
+
+// blockAt is where a flag sits in help's choice blocks: which block, which alternative.
+type blockAt struct{ block, alt int }
+
+var (
+	blockHeading = regexp.MustCompile(`^  (Exactly|At most) one of`)
+	blockFlag    = regexp.MustCompile(`^    (--[a-z0-9-]+)`)
+)
+
+// choiceBlocks reads the rendered help's choice blocks: a heading ("  Exactly one of..."),
+// then alternatives of flags at an indent of 4, separated by "  or:". Any other line at an
+// indent of 2, or a blank one, ends a block.
+func choiceBlocks(help string) map[string]blockAt {
+	out := map[string]blockAt{}
+	block, alt := 0, -1
+	for _, l := range strings.Split(help, "\n") {
+		switch {
+		case blockHeading.MatchString(l):
+			block, alt = block+1, 0
+		case alt < 0:
+		case l == "  or:":
+			alt++
+		case blockFlag.MatchString(l):
+			out[blockFlag.FindStringSubmatch(l)[1]] = blockAt{block, alt}
+		case strings.TrimSpace(l) == "" || strings.HasPrefix(l, "  ") && !strings.HasPrefix(l, "   "):
+			alt = -1
+		}
+	}
+	return out
 }
 
 // stringsOf is every string in an operation: its descriptions, its schemas' and examples'.

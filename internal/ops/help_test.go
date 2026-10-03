@@ -116,23 +116,36 @@ func TestHintsNameTheRule(t *testing.T) {
 			t.Errorf("hints(%s) = %q, want %q", field, got, want)
 		}
 	}
-	// a long rule: a member of a set is told what it excludes
-	long := choice{alts: [][]string{{"list_id"}, {"full_name"}, {"active_status", "from_modified_date", "max_returned", "name_contains", "name_ends_with", "name_range"}}}
-	if got := long.hint("max_returned", flagRef); got != "not with --list-id or --full-name" {
-		t.Errorf("long set member: %q", got)
+}
+
+// An exclusive choice becomes a block of alternatives; a choice among fields an earlier
+// block lists, an "at least one of" set, repeating choices and loose exclusions stay hints.
+func TestSplitBlocksAndHints(t *testing.T) {
+	filters := choice{alts: [][]string{{"list_id"}, {"full_name"}, {"max_returned", "name_contains", "name_range"}}}
+	names := choice{alts: [][]string{{"name_contains"}, {"name_range"}}}
+	atLeast := choice{alts: [][]string{{"a", "b"}}, atLeast: true}
+	r := rules{choices: []choice{filters, names, atLeast, filters}, combos: []combo{{members: []string{"x", "y"}}}}
+	blocks, rest := r.split()
+	if !reflect.DeepEqual(blocks, []choice{filters}) {
+		t.Errorf("blocks = %+v", blocks)
 	}
-	if got := long.hint("list_id", flagRef); !strings.HasPrefix(got, "at most one of: --list-id | --full-name | (--active-status, ") {
-		t.Errorf("long single: %q", got)
+	if !reflect.DeepEqual(rest.choices, []choice{names, atLeast}) || len(rest.combos) != 1 {
+		t.Errorf("rest = %+v", rest)
+	}
+	if got := rest.hints("name_range", flagRef); !reflect.DeepEqual(got, []string{"at most one of: --name-contains | --name-range"}) {
+		t.Errorf("a nested choice's hint: %q", got)
+	}
+	if got := rest.hints("list_id", flagRef); got != nil {
+		t.Errorf("a block's member has no hint of it: %q", got)
 	}
 }
 
-func TestHelpShowsHintsShapesAndExample(t *testing.T) {
+func TestHelpShowsBlocksHintsShapesAndExample(t *testing.T) {
 	var b bytes.Buffer
 	rulesOp(t, "create").WriteHelp(&b, "qube qb")
 	help := b.String()
 	for flag, wants := range map[string][]string{
-		"--home":        {"Home currency.", "(at most one of: --home | (--currency, --rate))"},
-		"--miles":       {"(exactly one of: --miles | (--end, --start))"},
+		"--home":        {"Home currency."},
 		"--debit-line":  {"A debit.", "(can be combined with --credit-line; at least one entry is required across them)", `JSON: [{"account_ref", "amount", "price_level_ref", …}, ...]. In each, required: account_ref; at most one of: rate | rate_percent | price_level_ref.`, "(repeat the flag, or a JSON array)"},
 		"--credit-line": {"(can be combined with --debit-line; at least one entry is required across them)"},
 		"--group-line":  {"(can be combined with --item-line)"},
@@ -144,14 +157,54 @@ func TestHelpShowsHintsShapesAndExample(t *testing.T) {
 			}
 		}
 	}
-	if strings.Contains(flagBlock(help, "--home"), "Choose at most") {
-		t.Errorf("the generator's note should give way to the hint:\n%s", flagBlock(help, "--home"))
+	if strings.Contains(flagBlock(help, "--home"), "Choose at most") || strings.Contains(flagBlock(help, "--home"), "one of") {
+		t.Errorf("the block states the rule; neither the generator's note nor a hint should:\n%s", flagBlock(help, "--home"))
+	}
+	// the flags that stand alone, then each choice as a block of its alternatives
+	body := help[strings.Index(help, "\nBody (JSON"):]
+	body = body[:strings.Index(body, "\n\n  --wait")]
+	var shape []string
+	for _, l := range strings.Split(body, "\n")[2:] {
+		if strings.HasPrefix(l, "  --") || strings.HasPrefix(l, "    --") || strings.HasPrefix(l, "  ") && !strings.HasPrefix(l, "   ") {
+			shape = append(shape, strings.Fields(l)[0]+strings.Repeat(" ", len(l)-len(strings.TrimLeft(l, " "))))
+		}
+	}
+	want := []string{
+		"--credit-line  ", "--debit-line  ", "--group-line  ", "--item-line  ", "--memo  ",
+		"At  ", "--home    ", "or:  ", "--currency    ", "--rate    ",
+		"Exactly  ", "--check    ", "or:  ", "--card    ",
+		"Exactly  ", "--miles    ", "or:  ", "--end    ", "--start    ",
+	}
+	if !reflect.DeepEqual(shape, want) {
+		t.Errorf("body flags = %q\nwant         %q\n%s", shape, want, body)
+	}
+	for _, heading := range []string{"\n  At most one of these groups (the flags in a group combine):\n", "\n  Exactly one of:\n    --check\n  or:\n    --card\n", "\n  Exactly one of these groups (the flags in a group combine):\n    --miles "} {
+		if !strings.Contains(body, heading) {
+			t.Errorf("body lacks %q:\n%s", heading, body)
+		}
+	}
+	blocks := choiceBlocks(help)
+	if blocks["--home"].block != blocks["--rate"].block || blocks["--home"].alt == blocks["--rate"].alt || blocks["--currency"] != blocks["--rate"] {
+		t.Errorf("--home, --currency and --rate: %+v %+v %+v", blocks["--home"], blocks["--currency"], blocks["--rate"])
 	}
 	if !strings.HasSuffix(help, "Example:\n  qube qb entries create <connection> --data '{\"memo\":\"It'\\''s paid\",\"debit_line\":[{\"account_ref\":{\"full_name\":\"Sales\"},\"amount\":10.50}]}'\n") {
 		t.Errorf("help should end with the example:\n%s", help)
 	}
 	if !strings.Contains(help, "\n  --example     Print the example body below as JSON") {
 		t.Errorf("help should list --example:\n%s", help)
+	}
+}
+
+func TestQueryChoiceIsABlock(t *testing.T) {
+	var b bytes.Buffer
+	rulesOp(t, "list").WriteHelp(&b, "qube qb")
+	help := b.String()
+	want := "  At most one of these groups (the flags in a group combine):\n    --list-id STRING  "
+	if !strings.Contains(help, want) || !strings.Contains(help, "\n  or:\n    --max-returned INTEGER\n    --name STRING\n") {
+		t.Fatalf("help:\n%s", help)
+	}
+	if blocks := choiceBlocks(help); blocks["--max-returned"] != blocks["--name"] || blocks["--name"].alt != 1 {
+		t.Fatalf("blocks = %+v", blocks)
 	}
 }
 
