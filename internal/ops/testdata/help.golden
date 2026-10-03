@@ -9,6 +9,9 @@ An aging report tracks outstanding invoices (in accounts receivable accounts) an
 (in accounts payable accounts). Notice that you could use a collections report instead of the
 aging query, if that better suited your needs.
 
+Intuit's reference: AgingReportQuery
+(https://developer.intuit.com/app/developer/qbdesktop/docs/api-reference/qbdesktop/agingreportquery).
+
 Flags:
   --request-id STRING              Your own label for the request, sent to QuickBooks as its
                                    qbXML requestID and echoed in the raw answer (response_xml);
@@ -17,7 +20,7 @@ Flags:
   --aging-report-type STRING       (required) The type of aging report being queried.
                                    One of: APAgingDetail, APAgingSummary, ARAgingDetail,
                                    ARAgingSummary, CollectionsReport.
-  --display-report                 Set DisplayReport to true to display this report within the
+  --display-report                 Set display_report to true to display this report within the
                                    QuickBooks UI.
   --include-accounts STRING        Indicates whether this report should include all accounts or
                                    just those that are currently in use.
@@ -32,7 +35,7 @@ Flags:
                                    of: account_type_filter | list_id | full_name |
                                    list_id_with_children | full_name_with_children.
   --report-aging-as-of STRING      The report will return aging information up to the
-                                   ReportAgingAsOf date.
+                                   report_aging_as_of date.
                                    One of: ReportEndDate, Today.
   --report-class-filter OBJECT     Allows you to query for a specified class.
                                    JSON: {"full_name", "full_name_with_children", …}. Exactly
@@ -71,8 +74,8 @@ Flags:
                                    One of: All, LastMonth, LastMonthToDate, LastQuarter,
                                    LastQuarterToDate, LastWeek, LastWeekToDate, LastYear, … (24;
                                    --help --json lists them).
-  --report-period OBJECT           If you omit both ToReportDate and FromReportDate, the report
-                                   will cover the current fiscal year to date.
+  --report-period OBJECT           If you omit both to_report_date and from_report_date, the
+                                   report will cover the current fiscal year to date.
                                    (at most one of: --report-period | --report-date-macro)
                                    JSON: {"from_report_date", "to_report_date"}
   --report-posting-status-filter STRING
@@ -100,12 +103,16 @@ List customers.  GET /api/v2/connections/{connection_id}/customers
 
 qbXML: CustomerQueryRq.
 
-Returns data for the specified customers.
+Finds customers and jobs: exact ones by list_id or full_name, or a filtered set by name,
+active_status and modified date. Without active_status only active customers come back. Set
+iterator to page through a long list: each page arrives at your webhook_url under one request
+id.
 
-Important: We highly recommend that you use the IncludeRetElement tag in your CustomerQuery to
-include any data you want but do NOT include the ShipAddress data in the Response, unless you
-need to get the shipping address for a particular customer. Excluding the shipping address data
-will significantly improve the performance of the CustomerQuery.
+Important: We highly recommend that you use the include tag in your CustomerQuery to include any
+data you want but do NOT include the ship_address data in the Response, unless you need to get
+the shipping address for a particular customer. Excluding the shipping address data will
+significantly improve the performance of the CustomerQuery.
+(--help --json has the whole description.)
 
 Flags:
   --request-id STRING            Your own label for the request, sent to QuickBooks as its qbXML
@@ -115,13 +122,13 @@ Flags:
   --iterator                     Page through every result: QuBe Sync asks QuickBooks for each
                                  page in turn and sends each to your webhook_url as it arrives,
                                  all with the same id.
-  --list-id STRING...            ListID and FullName both identify a list object.
+  --list-id STRING...            list_id and full_name both identify a list object.
                                  (at most one of: --list-id | --full-name | (--active-status,
                                  --from-modified-date, --max-returned, --name-contains,
                                  --name-ends-with, --name-range, --name-starts-with,
                                  --to-modified-date))
                                  (repeat the flag, or a JSON array)
-  --full-name STRING...          FullName (along with ListID) is a way to identify a list
+  --full-name STRING...          full_name (along with list_id) is a way to identify a list
                                  object.
                                  (at most one of: --list-id | --full-name | (--active-status,
                                  --from-modified-date, --max-returned, --name-contains,
@@ -160,7 +167,7 @@ Flags:
                                  AdditionalNotesRet, AltContact, AltPhone, Balance, BillAddress,
                                  BillAddressBlock, … (63; --help --json lists them). (repeat the
                                  flag, or a JSON array)
-  --owner-id STRING...           OwnerID identifies who owns the data extension. (repeat the
+  --owner-id STRING...           owner_id identifies who owns the data extension. (repeat the
                                  flag, or a JSON array)
   --webhook-url URL              Where QuBe Sync POSTs the answered request (this same document
                                  with response_json filled in), signed with X-QUBE-Signature.
@@ -168,6 +175,84 @@ Flags:
   --wait[=10m]  Wait here for QuickBooks' answer (every page of an iterated query) and print it.
 
 --help --json prints the operation's full parameters and body schema, as JSON.
+
+$ qube qb data-exts update --help
+Usage: qube qb data-exts update <connection> [flags]
+
+Update data ext.  PUT /api/v2/connections/{connection_id}/data-exts
+
+qbXML: DataExtModRq, from qbXML 2.0. The data_ext_mod wrapper from qbXML is also accepted.
+
+This request can only be invoked if a data extension definition has already been added to the
+target object (for example, the customer John Henry) by a DataExtDefAdd or by the user
+specifying a custom field value for that object via the QuickBooks UI.
+
+If you want to clear the data extension value (to make the custom field or private extension
+blank), you must use DataExtDel. The DataExtMod request can’t be used to clear the field.
+
+Both DataExtAdd and DataExtMod cause a Modify event to be generated for the parent object. …
+(--help --json has the whole description.)
+
+Flags:
+  --webhook-url URL  Where QuBe Sync POSTs the answered request (this same document with
+                     response_json filled in), signed with X-QUBE-Signature.
+
+Body (JSON, required): --data JSON|@file|-, and/or its fields as flags (a flag wins):
+  --data-ext-name STRING        (required) The name of the data extension.
+  --data-ext-value STRING       (required) The data in this field.
+  --owner-id STRING             (required) owner_id identifies who owns the data extension.
+  --list-data-ext-type STRING   The type of list object (e.g. Customer) that this data extension
+                                is attached to.
+                                (not with --txn-data-ext-type, --txn-id, --txn-line-id or
+                                --other-data-ext-type, and one alternative is required)
+                                One of: Account, Customer, Employee, Item, OtherName, Vendor.
+  --list-obj-ref OBJECT         Refers to a list object.
+                                (not with --txn-data-ext-type, --txn-id, --txn-line-id or
+                                --other-data-ext-type, and one alternative is required)
+                                JSON: {"full_name", "list_id"}
+  --other-data-ext-type STRING  Not supported.
+                                (exactly one of: (--list-data-ext-type, --list-obj-ref) |
+                                (--txn-data-ext-type, --txn-id, --txn-line-id) |
+                                --other-data-ext-type)
+                                One of: Company.
+  --request-id STRING           Your own label for the request, sent to QuickBooks as its qbXML
+                                requestID and echoed in the raw answer (response_xml); optional,
+                                since the answer's webhook already carries the request's id.
+  --txn-data-ext-type STRING    The type of transaction that the data extension belongs to.
+                                (not with --list-data-ext-type, --list-obj-ref or
+                                --other-data-ext-type, and one alternative is required)
+                                One of: ARRefundCreditCard, Bill, BillPaymentCheck,
+                                BillPaymentCreditCard, BuildAssembly, Charge, Check,
+                                CreditCardCharge, … (22; --help --json lists them).
+  --txn-id STRING               txn_id is the unique QuickBooks identifier for a transaction.
+                                (not with --list-data-ext-type, --list-obj-ref or
+                                --other-data-ext-type, and one alternative is required)
+  --txn-line-id STRING          Identification number of the transaction line.
+                                (not with --list-data-ext-type, --list-obj-ref or
+                                --other-data-ext-type, and one alternative is required)
+
+  --wait[=10m]  Wait here for QuickBooks' answer (every page of an iterated query) and print it.
+  --example     Print the example body below as JSON, to edit and send with --data @file.
+
+--help --json prints the operation's full parameters and body schema, as JSON.
+
+Example:
+  qube qb data-exts update <connection> --data '{"data_ext_name":"Color","data_ext_value":"Blue","list_data_ext_type":"Customer",…,"owner_id":"0"}'
+
+  That body is shortened: {…} and […] stand for more. The whole of it, to edit and send:
+  qube qb data-exts update --example > data-ext.json
+  qube qb data-exts update <connection> --data @data-ext.json
+
+$ qube qb data-exts update --example
+{
+  "data_ext_name": "Color",
+  "data_ext_value": "Blue",
+  "list_data_ext_type": "Customer",
+  "list_obj_ref": {
+    "full_name": "Acme Corp"
+  },
+  "owner_id": "0"
+}
 
 $ qube qb estimates update --help
 Usage: qube qb estimates update <connection> [flags]
@@ -179,21 +264,21 @@ qbXML: EstimateModRq, from qbXML 3.0. The estimate_mod wrapper from qbXML is als
 Some fields in an EstimateMod request can’t be cleared. If any of the following fields is
 included in an estimate modify request, it must contain a value:
 
-- CustomerRef
-- TemplateRef
-- TxnDate
-- IsActive
-- CreateChangeOrder
-- DueDate
-- ItemSalesTaxRef
+- customer_ref
+- template_ref
+- txn_date
+- is_active
+- create_change_order
+- due_date
+- item_sales_tax_ref
 
-Within EstimateLineMod or EstimateLineGroupMod:
+Within estimate_line_mod or estimate_line_group_mod:
 
-- ItemRef
+- item_ref
 - Quantity
 - Rate
 - Amount>
-- SalesTaxCodeRef
+- sales_tax_code_ref
 - Markup
 (--help --json has the whole description.)
 
@@ -202,22 +287,23 @@ Flags:
                      response_json filled in), signed with X-QUBE-Signature.
 
 Body (JSON, required): --data JSON|@file|-, and/or its fields as flags (a flag wins):
-  --edit-sequence STRING           (required) EditSequence is a server-generated revision token.
-  --txn-id STRING                  (required) TxnID is the unique QuickBooks identifier for a
+  --edit-sequence STRING           (required) edit_sequence is a server-generated revision
+                                   token.
+  --txn-id STRING                  (required) txn_id is the unique QuickBooks identifier for a
                                    transaction.
   --bill-address OBJECT            This aggregate supports at most five address lines.
                                    JSON: {"addr1", "city", "postal_code", "state", …}
   --class-ref OBJECT               Use classes to categorize transactions (for example, by
                                    department, location, or work type).
                                    JSON: {"full_name", "list_id"}
-  --create-change-order            If CreateChangeOrder is true, the modifications are tracked
+  --create-change-order            If create_change_order is true, the modifications are tracked
                                    as a “change order” that appears in the description field at
                                    the bottom of the estimate form in QuickBooks.
   --customer-msg-ref OBJECT        A standard message such as “Thank you for your business,” or
                                    “Please sign and return this estimate to indicate your
                                    approval.”
                                    JSON: {"full_name", "list_id"}
-  --customer-ref OBJECT            CustomerRef identifies a customer or customer job.
+  --customer-ref OBJECT            customer_ref identifies a customer or customer job.
                                    JSON: {"full_name", "list_id"}
   --customer-sales-tax-code-ref OBJECT
                                    Refers to the sales-tax code for sales related to this
@@ -238,7 +324,7 @@ Body (JSON, required): --data JSON|@file|-, and/or its fields as flags (a flag w
                                    rate_percent; at most one of: markup_rate |
                                    markup_rate_percent | price_level_ref. (repeat the flag, or a
                                    JSON array)
-  --exchange-rate NUMBER           ExchangeRate is the rate from this currency to the company’s
+  --exchange-rate NUMBER           exchange_rate is the rate from this currency to the company’s
                                    home currency at AsOfDate.
   --fob STRING                     QuickBooks uses the term FOB, “freight on board,” to indicate
                                    the place from which the product is shipped.
@@ -246,8 +332,8 @@ Body (JSON, required): --data JSON|@file|-, and/or its fields as flags (a flag w
                                    CustomerMsgRef, CustomerRef, CustomerSalesTaxCodeRef,
                                    DataExtRet, … (41; --help --json lists them). (repeat the
                                    flag, or a JSON array)
-  --is-active                      If IsActive is true, this object is currently enabled for use
-                                   by QuickBooks.
+  --is-active                      If is_active is true, this object is currently enabled for
+                                   use by QuickBooks.
   --is-tax-included                For future use with international versions of QuickBooks.
   --is-to-be-emailed               When enabled, QuickBooks validates the customer email at
                                    runtime before sending.
@@ -258,7 +344,7 @@ Body (JSON, required): --data JSON|@file|-, and/or its fields as flags (a flag w
   --other STRING                   Other, Other1, and Other2 are built-in transaction custom
                                    fields.
   --po-number STRING               Purchase order number.
-  --ref-number STRING              RefNumber is a user-managed transaction reference (for
+  --ref-number STRING              ref_number is a user-managed transaction reference (for
                                    example, a check number).
   --request-id STRING              Your own label for the request, sent to QuickBooks as its
                                    qbXML requestID and echoed in the raw answer (response_xml);
@@ -313,14 +399,12 @@ Create invoice.  POST /api/v2/connections/{connection_id}/invoices
 
 qbXML: InvoiceAddRq. The invoice_add wrapper from qbXML is also accepted.
 
-An invoice records the amount owed by a customer who purchased goods or services but didn’t pay
-in full at the time of the sale. If full payment is received at the time of the sale, it is
-recorded as a sales receipt, not an invoice.
-
-In QuickBooks, invoices and estimates use similar fields, and an estimate can be converted into
-an invoice after the customer accepts the estimate. However, in the SDK, there is currently no
-ability to create an invoice directly from an estimate (you can’t link an invoice to an
-estimate).
+Adds an invoice: what a customer owes for a sale they didn't pay in full when it was made (a
+sale paid in full is a sales receipt). customer_ref is required. Each line in invoice_line_add
+names an item_ref and two of quantity, rate and amount; QuickBooks works out the third. An
+inventory item on an invoice lowers stock and posts its cost of goods sold. To invoice a sales
+order, link it with link_to_txn_id. The sync_order workflow template adds the customer and any
+missing items first.
 (--help --json has the whole description.)
 
 Flags:
@@ -328,9 +412,10 @@ Flags:
                      response_json filled in), signed with X-QUBE-Signature.
 
 Body (JSON, required): --data JSON|@file|-, and/or its fields as flags (a flag wins):
-  --customer-ref OBJECT            (required) CustomerRef identifies a customer or customer job.
+  --customer-ref OBJECT            (required) customer_ref identifies a customer or customer
+                                   job.
                                    JSON: {"full_name", "list_id"}
-  --ar-account-ref OBJECT          ARAccountRef points to an Accounts Receivable account.
+  --ar-account-ref OBJECT          ar_account_ref points to an Accounts Receivable account.
                                    JSON: {"full_name", "list_id"}
   --bill-address OBJECT            This aggregate supports at most five address lines.
                                    JSON: {"addr1", "city", "postal_code", "state", …}
@@ -345,15 +430,15 @@ Body (JSON, required): --data JSON|@file|-, and/or its fields as flags (a flag w
                                    Refers to the sales-tax code for sales related to this
                                    customer.
                                    JSON: {"full_name", "list_id"}
-  --def-macro STRING               defMacro lets you assign a reusable name to a returned TxnID
-                                   or TxnLineID so later requests can reference it with
+  --def-macro STRING               def_macro lets you assign a reusable name to a returned
+                                   txn_id or txn_line_id so later requests can reference it with
                                    useMacro.
   --discount-line-add OBJECT       JSON: {"account_ref", "amount", "is_taxable", …}. At most one
                                    of: amount | rate_percent.
-  --due-date DATE                  If DueDate isn’t included in an InvoiceAdd request,
+  --due-date DATE                  If due_date isn’t included in an InvoiceAdd request,
                                    QuickBooks might determine the due date according to the
                                    terms set for this customer.
-  --exchange-rate NUMBER           ExchangeRate is the rate from this currency to the company’s
+  --exchange-rate NUMBER           exchange_rate is the rate from this currency to the company’s
                                    home currency at AsOfDate.
   --external-guid STRING           Allows for the attachment of a user defined GUID value.
   --fob STRING                     QuickBooks uses the term FOB, “freight on board,” to indicate
@@ -375,14 +460,14 @@ Body (JSON, required): --data JSON|@file|-, and/or its fields as flags (a flag w
                                    JSON: [{"item_group_ref", "data_ext", "desc", …}, ...]. In
                                    each, required: item_group_ref. (repeat the flag, or a JSON
                                    array)
-  --is-finance-charge              If IsFinanceCharge is true, a finance-charge item has been
+  --is-finance-charge              If is_finance_charge is true, a finance-charge item has been
                                    added to the invoice.
-  --is-pending                     If IsPending is set to true, the invoice hasn’t been
+  --is-pending                     If is_pending is set to true, the invoice hasn’t been
                                    completed.
   --is-tax-included                For future use with international versions of QuickBooks.
   --is-to-be-emailed               When enabled, QuickBooks validates the customer email at
                                    runtime before sending.
-  --is-to-be-printed               If IsToBePrinted is true, QuickBooks queues the form for
+  --is-to-be-printed               If is_to_be_printed is true, QuickBooks queues the form for
                                    later printing.
   --item-sales-tax-ref OBJECT      An ItemSalesTax entry represents one tax rate paid to one tax
                                    agency.
@@ -392,7 +477,7 @@ Body (JSON, required): --data JSON|@file|-, and/or its fields as flags (a flag w
   --other STRING                   Other, Other1, and Other2 are built-in transaction custom
                                    fields.
   --po-number STRING               Purchase order number.
-  --ref-number STRING              RefNumber is a user-managed transaction reference (for
+  --ref-number STRING              ref_number is a user-managed transaction reference (for
                                    example, a check number).
   --request-id STRING              Your own label for the request, sent to QuickBooks as its
                                    qbXML requestID and echoed in the raw answer (response_xml);
@@ -467,11 +552,12 @@ qbXML: JournalEntryAddRq. The journal_entry_add wrapper from qbXML is also accep
 
 In versions 1.0 and 1.1, all debit lines in a JournalEntryAdd request had to appear first,
 followed by all credit lines. But in versions 2.0 and above, the debit and credit lines can be
-intermingled. A credit line can legally come first in thejournal entry add. In traditional
-accounting, transactions are entered into the general journal and categorized exclusively by
-account. In QuickBooks, most transactions can be categorized either by account or by type
-(invoice, check, and so on). For a few activities in QuickBooks, you must use the general
-journal directly, for example for recording depreciation. …
+intermingled. A credit line can legally come first in thejournal entry add.
+
+In traditional accounting, transactions are entered into the general journal and categorized
+exclusively by account. In QuickBooks, most transactions can be categorized either by account or
+by type (invoice, check, and so on). For a few activities in QuickBooks, you must use the
+general journal directly, for example for recording depreciation.
 (--help --json has the whole description.)
 
 Flags:
@@ -485,10 +571,10 @@ Body (JSON, required): --data JSON|@file|-, and/or its fields as flags (a flag w
                                    (--currency-ref, --exchange-rate,
                                    --is-amounts-entered-in-home-currency))
                                    JSON: {"full_name", "list_id"}
-  --def-macro STRING               defMacro lets you assign a reusable name to a returned TxnID
-                                   or TxnLineID so later requests can reference it with
+  --def-macro STRING               def_macro lets you assign a reusable name to a returned
+                                   txn_id or txn_line_id so later requests can reference it with
                                    useMacro.
-  --exchange-rate NUMBER           ExchangeRate is the rate from this currency to the company’s
+  --exchange-rate NUMBER           exchange_rate is the rate from this currency to the company’s
                                    home currency at AsOfDate.
                                    (at most one of: --is-home-currency-adjustment |
                                    (--currency-ref, --exchange-rate,
@@ -529,7 +615,7 @@ Body (JSON, required): --data JSON|@file|-, and/or its fields as flags (a flag w
                                    JSON: [{"account_ref", "amount", "memo", …}, ...] (repeat the
                                    flag, or a JSON array)
   --memo STRING                    Additional information.
-  --ref-number STRING              RefNumber is a user-managed transaction reference (for
+  --ref-number STRING              ref_number is a user-managed transaction reference (for
                                    example, a check number).
   --request-id STRING              Your own label for the request, sent to QuickBooks as its
                                    qbXML requestID and echoed in the raw answer (response_xml);
@@ -574,6 +660,95 @@ $ qube qb journal-entries create --example
   "txn_date": "2026-01-15"
 }
 
+$ qube qb payments record --help
+Usage: qube qb payments record <connection> [flags]
+
+Record payment.  POST /api/v2/connections/{connection_id}/payments
+
+qbXML: ReceivePaymentAddRq, from qbXML 1.1. The receive_payment_add wrapper from qbXML is also
+accepted.
+
+Records a customer's payment. Set customer_ref, total_amount and either is_auto_apply
+(QuickBooks applies it to an invoice of exactly that amount, or else to the oldest first) or
+applied_to_txn_add, naming each invoice by txn_id with the amount paid on it. The amounts
+applied can't add up to more than total_amount. A line can also apply a credit memo (set_credit)
+or a discount. Without deposit_to_account_ref, the money goes to Undeposited Funds.
+
+1. To record a customer’s payment against an invoice for one or more jobs,
+(--help --json has the whole description.)
+
+Flags:
+  --webhook-url URL  Where QuBe Sync POSTs the answered request (this same document with
+                     response_json filled in), signed with X-QUBE-Signature.
+
+Body (JSON, required): --data JSON|@file|-, and/or its fields as flags (a flag wins):
+  --customer-ref OBJECT            (required) customer_ref identifies a customer or customer
+                                   job.
+                                   JSON: {"full_name", "list_id"}
+  --applied-to-txn-add OBJECT...   (exactly one of: --is-auto-apply | --applied-to-txn-add)
+                                   JSON: [{"txn_id", "discount_account_ref", …}, ...]. In each,
+                                   required: txn_id. (repeat the flag, or a JSON array)
+  --ar-account-ref OBJECT          ar_account_ref points to an Accounts Receivable account.
+                                   JSON: {"full_name", "list_id"}
+  --credit-card-txn-info OBJECT    Contains data from the credit card transaction used in the
+                                   payment.
+                                   JSON: {"credit_card_txn_input_info", …}. Required:
+                                   credit_card_txn_input_info, credit_card_txn_result_info.
+  --def-macro STRING               def_macro lets you assign a reusable name to a returned
+                                   txn_id or txn_line_id so later requests can reference it with
+                                   useMacro.
+  --deposit-to-account-ref OBJECT  Refers to the account where these funds will be (or have
+                                   been) deposited.
+                                   JSON: {"full_name", "list_id"}
+  --exchange-rate NUMBER           exchange_rate is the rate from this currency to the company’s
+                                   home currency at AsOfDate.
+  --external-guid STRING           Allows for the attachment of a user defined GUID value.
+  --include-ret-element STRING...  One of: ARAccountRef, AppliedToTxnRet, CreditCardTxnInfo,
+                                   CurrencyRef, CustomerRef, DataExtRet, DepositToAccountRef,
+                                   EditSequence, … (24; --help --json lists them). (repeat the
+                                   flag, or a JSON array)
+  --is-auto-apply                  If is_auto_apply is true, QuickBooks applies total_amount to
+                                   any outstanding transaction that exactly matches
+                                   total_amount.
+                                   (exactly one of: --is-auto-apply | --applied-to-txn-add)
+  --memo STRING                    The beginning of this memo will appear in reports that show
+                                   details of this receive payment.
+  --payment-method-ref OBJECT      payment_method_ref identifies how a payment is made (for
+                                   example, cash, check, or card type).
+                                   JSON: {"full_name", "list_id"}
+  --ref-number STRING              ref_number is a user-managed transaction reference (for
+                                   example, a check number).
+  --request-id STRING              Your own label for the request, sent to QuickBooks as its
+                                   qbXML requestID and echoed in the raw answer (response_xml);
+                                   optional, since the answer's webhook already carries the
+                                   request's id.
+  --total-amount NUMBER            Total amount of money received.
+  --txn-date DATE                  The date of the transaction.
+
+  --wait[=10m]  Wait here for QuickBooks' answer (every page of an iterated query) and print it.
+  --example     Print the example body below as JSON, to edit and send with --data @file.
+
+--help --json prints the operation's full parameters and body schema, as JSON.
+
+Example:
+  qube qb payments record <connection> --data '{"customer_ref":{…},"is_auto_apply":true,"memo":"Monthly service","ref_number":"1001",…}'
+
+  That body is shortened: {…} and […] stand for more. The whole of it, to edit and send:
+  qube qb payments record --example > payment.json
+  qube qb payments record <connection> --data @payment.json
+
+$ qube qb payments record --example
+{
+  "customer_ref": {
+    "full_name": "Acme Corp"
+  },
+  "is_auto_apply": true,
+  "memo": "Monthly service",
+  "ref_number": "1001",
+  "total_amount": 250.0,
+  "txn_date": "2026-01-15"
+}
+
 $ qube qb vehicle-mileages create --help
 Usage: qube qb vehicle-mileages create <connection> [flags]
 
@@ -584,9 +759,11 @@ accepted.
 
 Adds a VehicleMileage transaction involving the specified vehicle for the specified total miles
 or optionally for the QuickBooks calculated total miles if you supply the odometer start and
-end. Notice that only dates are supported for vehicle mileage, so make sure you enter any
-datetime values with dates only, no time values. That is, 2002-02-02 will work for trip end date
-or start date, but 2002-02-02T12:20:20 won’t work. …
+end.
+
+Notice that only dates are supported for vehicle mileage, so make sure you enter any datetime
+values with dates only, no time values. That is, 2002-02-02 will work for trip end date or start
+date, but 2002-02-02T12:20:20 won’t work.
 (--help --json has the whole description.)
 
 Flags:
@@ -601,16 +778,16 @@ Body (JSON, required): --data JSON|@file|-, and/or its fields as flags (a flag w
   --class-ref OBJECT               Use classes to categorize transactions (for example, by
                                    department, location, or work type).
                                    JSON: {"full_name", "list_id"}
-  --customer-ref OBJECT            CustomerRef identifies a customer or customer job.
+  --customer-ref OBJECT            customer_ref identifies a customer or customer job.
                                    JSON: {"full_name", "list_id"}
-  --def-macro STRING               defMacro lets you assign a reusable name to a returned TxnID
-                                   or TxnLineID so later requests can reference it with
+  --def-macro STRING               def_macro lets you assign a reusable name to a returned
+                                   txn_id or TxnLineID so later requests can reference it with
                                    useMacro.
   --include-ret-element STRING...  One of: BillableAmount, BillableRate, BillableStatus,
                                    ClassRef, CustomerRef, EditSequence, ExternalGUID, ItemRef, …
                                    (23; --help --json lists them). (repeat the flag, or a JSON
                                    array)
-  --item-ref OBJECT                ItemRef may accept all item types or a restricted subset,
+  --item-ref OBJECT                item_ref may accept all item types or a restricted subset,
                                    depending on the request.
                                    JSON: {"full_name", "list_id"}
   --notes STRING                   Additional information.

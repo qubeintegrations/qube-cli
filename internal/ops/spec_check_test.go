@@ -35,9 +35,10 @@ const (
 
 // fixtureOps are the operations the subset holds, by operationId: a query with choices
 // written in prose, bodies with flat exclusive choices at two depths, a required and an
-// optional repeating choice, a body choice written as a oneOf, a Markdown-heavy description,
-// and a query with required parameters.
-var fixtureOps = []string{"listCustomers", "createInvoice", "createJournalEntry", "updateEstimate", "createVehicleMileage", "listAgingReports"}
+// optional repeating choice, body choices written as a oneOf (two alternatives of fields;
+// three, one of them a single required field; a flag against a list), a Markdown-heavy
+// description, and a query with required parameters.
+var fixtureOps = []string{"listCustomers", "createInvoice", "createJournalEntry", "updateEstimate", "createVehicleMileage", "updateDataExt", "recordPayment", "listAgingReports"}
 
 func generatedSpec() string {
 	repo := os.Getenv("QUBE_REPO")
