@@ -398,6 +398,61 @@ func (c *ctx) requests(args []string) {
 	}
 }
 
+// installConflict turns a 409 `key_taken` from `workflows install` into a sentence that
+// names the flags, or "" when the message isn't that (the caller then shows it as-is).
+func installConflict(template, as, message string) string {
+	if !strings.HasPrefix(message, "key_taken") {
+		return ""
+	}
+	key := template
+	if as != "" {
+		key = as
+	}
+	return fmt.Sprintf("This app already has a workflow %s. Run it again with --replace to give it (and each child workflow the app has) template %s's current chart, "+
+		"with --as NEW_KEY to install alongside it, or use `qube workflows push FILE` to replace it with a chart of your own.", key, template)
+}
+
+// installSummary is what `workflows install` prints: what it created, what it replaced, and,
+// when it replaced without publishing, that the published versions are still the live ones.
+func installSummary(template string, data map[string]interface{}, installed, replaced []string, published bool) string {
+	var b strings.Builder
+	key := str(data["key"])
+	if contains(replaced, key) {
+		fmt.Fprintf(&b, "Replaced %s with template %s's current chart (%s).\n", key, template, str(data["state"]))
+	} else {
+		fmt.Fprintf(&b, "Installed %s as %s (%s).\n", template, key, str(data["state"]))
+	}
+	if others := without(installed, key); len(others) > 0 {
+		fmt.Fprintf(&b, "Also created: %s\n", strings.Join(others, ", "))
+	}
+	if others := without(replaced, key); len(others) > 0 {
+		fmt.Fprintf(&b, "Also replaced: %s\n", strings.Join(others, ", "))
+	}
+	if len(replaced) > 0 && !published {
+		b.WriteString("A replaced workflow's working copy changed; its published version stays live until you publish it (qube workflows publish KEY).\n")
+	}
+	return b.String()
+}
+
+func contains(list []string, s string) bool {
+	for _, x := range list {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
+func without(list []string, s string) []string {
+	var out []string
+	for _, x := range list {
+		if x != s {
+			out = append(out, x)
+		}
+	}
+	return out
+}
+
 // discardConflict turns the code on a 409 from `discard` into a clear sentence, or ""
 // when the code isn't one it recognizes (the caller then shows the error as-is).
 func discardConflict(id, code string) string {
@@ -879,13 +934,15 @@ func (c *ctx) workflows(args []string) {
 		ui.Table(os.Stdout, []string{"KEY", "NAME", "INSTALLS"}, rows, "No workflow templates on this host.")
 	case "install":
 		fs := flag.NewFlagSet("workflows install", flag.ExitOnError)
-		publish := fs.Bool("publish", false, "publish the installed workflow (and its children) immediately")
-		notes := fs.String("notes", "", "a note for the version history")
+		publish := fs.Bool("publish", false, "publish what was installed or replaced (children first)")
+		notes := fs.String("notes", "", "a note for the version history (with --publish)")
 		as := fs.String("as", "", "install under a different key")
+		replace := fs.Bool("replace", false, "give a workflow the app already has at the key (and each child it has) the template's current chart, instead of refusing")
 		parseAnywhere(fs, args[1:])
 		if fs.NArg() < 1 {
-			ui.Usage("usage: qube workflows install KEY [--publish] [--notes TEXT] [--as NEW_KEY]")
+			ui.Usage("usage: qube workflows install KEY [--publish] [--notes TEXT] [--as NEW_KEY] [--replace]")
 		}
+		template := fs.Arg(0)
 		fields := map[string]interface{}{}
 		if *publish {
 			fields["publish"] = true
@@ -896,36 +953,39 @@ func (c *ctx) workflows(args []string) {
 		if *as != "" {
 			fields["as"] = *as
 		}
+		if *replace {
+			fields["replace"] = true
+		}
 		var body interface{}
 		if len(fields) > 0 {
 			body = fields
 		}
 		cl, app := c.appClient()
-		c.confirmWrite(app, "Install template "+fs.Arg(0)+publishing(*publish))
+		what := "Install template " + template
+		if *replace {
+			what += ", replacing the chart of any workflow the app already has at its keys,"
+		}
+		c.confirmWrite(app, what+publishing(*publish))
+		// 201 for a fresh install, 200 when --replace replaced the workflow at the key.
 		var out struct {
 			Data      map[string]interface{} `json:"data"`
 			Installed []string               `json:"installed"`
+			Replaced  []string               `json:"replaced"`
 		}
-		if err := cl.Do("POST", v2path("/workflow-templates/{key}/install", fs.Arg(0)), nil, body, &out); err != nil {
+		if err := cl.Do("POST", v2path("/workflow-templates/{key}/install", template), nil, body, &out); err != nil {
+			var apiErr *api.Error
+			if errors.As(err, &apiErr) && apiErr.Status == 409 && !*replace {
+				if msg := installConflict(template, *as, apiErr.Message); msg != "" {
+					ui.Fail("%s", msg)
+				}
+			}
 			fail(err)
 		}
 		if ui.JSON {
 			ui.PrintJSON(out)
 			return
 		}
-		installedKey := str(out.Data["key"])
-		fmt.Printf("Installed %s as %s (%s).\n", fs.Arg(0), installedKey, str(out.Data["state"]))
-		if len(out.Installed) > 1 {
-			var others []string
-			for _, k := range out.Installed {
-				if k != installedKey {
-					others = append(others, k)
-				}
-			}
-			if len(others) > 0 {
-				fmt.Printf("Also created: %s\n", strings.Join(others, ", "))
-			}
-		}
+		fmt.Print(installSummary(template, out.Data, out.Installed, out.Replaced, *publish))
 	case "run":
 		fs := flag.NewFlagSet("workflows run", flag.ExitOnError)
 		input := fs.String("input", "{}", "JSON input, or @file")

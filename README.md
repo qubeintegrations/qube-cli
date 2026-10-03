@@ -15,7 +15,7 @@ qube requests list <connection> --state error
 qube requests discard <connection> <id>
 qube simulator faults <connection> --next 3100
 qube simulator faults <connection> --next lost   # applied, then never answered: ends timed_out (--next ok clears)
-qube workflows install create_customer_safely --publish
+qube workflows install create_customer_safely --publish --replace   # safe to repeat: replaces the chart it installed before
 qube workflows push ./chart.json --publish
 qube api GET /connections           # any v2 path, as the current app
 ```

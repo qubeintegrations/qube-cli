@@ -467,6 +467,69 @@ func TestWorkflowsInstall(t *testing.T) {
 	}
 }
 
+// --replace sends "replace": true, and a 200 says what was replaced next to what was created.
+func TestWorkflowsInstallReplace(t *testing.T) {
+	var gotBody map[string]interface{}
+	c := newAPITest(t, map[string]http.HandlerFunc{
+		"/api/v2/workflow-templates/tmpl1/install": func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewDecoder(r.Body).Decode(&gotBody)
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"data":      map[string]interface{}{"key": "tmpl1", "state": "published"},
+				"installed": []string{"tmpl1_new_child"},
+				"replaced":  []string{"tmpl1", "tmpl1_child"},
+			})
+		},
+	})
+	setJSON(t, false)
+	out := captureStdout(t, func() { c.workflows([]string{"install", "tmpl1", "--replace"}) })
+	if gotBody["replace"] != true || gotBody["publish"] != nil {
+		t.Fatalf("body = %v", gotBody)
+	}
+	for _, want := range []string{
+		"Replaced tmpl1 with template tmpl1's current chart (published).",
+		"Also created: tmpl1_new_child",
+		"Also replaced: tmpl1_child",
+		"published version stays live until you publish it",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output = %q, want %q", out, want)
+		}
+	}
+}
+
+// A fresh install under --replace answers 201, with nothing replaced.
+func TestWorkflowsInstallReplaceFresh(t *testing.T) {
+	c := newAPITest(t, map[string]http.HandlerFunc{
+		"/api/v2/workflow-templates/tmpl1/install": func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"data":      map[string]interface{}{"key": "tmpl1", "state": "published"},
+				"installed": []string{"tmpl1"},
+				"replaced":  []string{},
+			})
+		},
+	})
+	setJSON(t, false)
+	out := captureStdout(t, func() { c.workflows([]string{"install", "tmpl1", "--replace", "--publish"}) })
+	if out != "Installed tmpl1 as tmpl1 (published).\n" {
+		t.Fatalf("output = %q", out)
+	}
+}
+
+func TestInstallConflict(t *testing.T) {
+	msg := installConflict("tmpl1", "", `key_taken: pass "replace": true to replace it with the template's chart`)
+	if !strings.Contains(msg, "workflow tmpl1") || !strings.Contains(msg, "--replace") || !strings.Contains(msg, "--as NEW_KEY") {
+		t.Fatalf("message = %q", msg)
+	}
+	if msg := installConflict("tmpl1", "k2", "key_taken: ..."); !strings.Contains(msg, "workflow k2") {
+		t.Fatalf("message = %q", msg)
+	}
+	if msg := installConflict("tmpl1", "", "something else"); msg != "" {
+		t.Fatalf("an unknown 409 is shown as-is, got %q", msg)
+	}
+}
+
 func TestWorkflowsRunsEventsQuery(t *testing.T) {
 	var gotMethod, gotPath string
 	var gotQuery url.Values

@@ -215,7 +215,8 @@ be left out: it is then --connection, or the default from ` + "`qube use --conne
   workflows usage KEY [--version V]                         Markdown docs for the chart's input/output
   workflows schema                                          the chart JSON Schema
   workflows templates [KEY]                                 shipped charts ready to install
-  workflows install KEY [--publish] [--notes TEXT] [--as NEW_KEY]
+  workflows install KEY [--publish] [--notes TEXT] [--as NEW_KEY] [--replace]
+                                   --replace gives a workflow the app already has the template's chart
   workflows run KEY [--input JSON|@file] [--version V] [--webhook-url U] [--wait]
   workflows runs [connection] [run-id] [--events] [--state S] [--outcome O] [--after SEQ] [--limit N]
                                    (a run or its events: JSON; with a connection chosen, a lone id is the run)
