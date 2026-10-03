@@ -191,9 +191,14 @@ one a host serves:
 ```bash
 curl -sf https://qubesync.com/api/v2/openapi.json -o /tmp/v2.json   # or your --host
 QUBE_SPEC=/tmp/v2.json go test ./internal/ops -run TestParseServedSpec -v
-``` A release is a tag: `git tag v0.1.0 && git push
---tags` runs [goreleaser](.goreleaser.yaml) from `.github/workflows/release.yml`, which builds the
-six binaries, writes `checksums.txt` and publishes the GitHub release.
+```
+
+### Releasing
+
+A release is a tag on `main`: `git tag v0.3.0 && git push origin v0.3.0` runs
+[goreleaser](.goreleaser.yaml) from `.github/workflows/release.yml`, which tests, builds the six
+binaries (the tag, without its `v`, becomes `qube version`), writes `checksums.txt` and publishes the
+GitHub release with notes made from the commits since the previous tag.
 
 ### Homebrew
 
