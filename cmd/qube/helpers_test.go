@@ -57,7 +57,8 @@ func TestUpsertEnv(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := os.ReadFile(p)
-	want := "RAILS_ENV=development\nQUBE_API_KEY=sk_new\n# comment\nQUBE_URL=https://dev.qubesync.com\nQUBE_WEBHOOK_SECRET=whs\n"
+	// the replaced line keeps its export, and so does the appended one since the file exports
+	want := "RAILS_ENV=development\nexport QUBE_API_KEY=sk_new\n# comment\nQUBE_URL=https://dev.qubesync.com\nexport QUBE_WEBHOOK_SECRET=whs\n"
 	if string(got) != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
 	}
@@ -70,6 +71,68 @@ func TestUpsertEnv(t *testing.T) {
 	entries, _ := os.ReadDir(filepath.Dir(p))
 	if len(entries) != 1 {
 		t.Fatalf("a temp file was left behind: %v", entries)
+	}
+}
+
+func TestUpsertEnvWritesThroughSymlink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need extra privileges on Windows")
+	}
+	dir := t.TempDir()
+	shared := filepath.Join(dir, "shared", ".env")
+	link := filepath.Join(dir, "app", ".env")
+	for _, d := range []string{filepath.Dir(shared), filepath.Dir(link)} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(shared, []byte("RAILS_ENV=development\nQUBE_URL=https://old\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join("..", "shared", ".env"), link); err != nil {
+		t.Fatal(err)
+	}
+	if err := upsertEnv(link, map[string]string{"QUBE_URL": "u", "QUBE_API_KEY": "k", "QUBE_WEBHOOK_SECRET": "s"}); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("the link must stay a link: %v %v", info, err)
+	}
+	got, _ := os.ReadFile(shared)
+	if string(got) != "RAILS_ENV=development\nQUBE_URL=u\nQUBE_API_KEY=k\nQUBE_WEBHOOK_SECRET=s\n" {
+		t.Fatalf("the linked file wasn't updated: %q", got)
+	}
+	if info, _ := os.Stat(shared); info.Mode().Perm() != 0o640 {
+		t.Fatalf("the linked file's mode must be kept, got %o", info.Mode().Perm())
+	}
+	for _, d := range []string{filepath.Dir(shared), filepath.Dir(link)} {
+		if entries, _ := os.ReadDir(d); len(entries) != 1 {
+			t.Fatalf("a temp file was left behind in %s: %v", d, entries)
+		}
+	}
+}
+
+func TestUpsertEnvCreatesAMissingLinkTarget(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need extra privileges on Windows")
+	}
+	dir := t.TempDir()
+	link := filepath.Join(dir, ".env")
+	if err := os.Symlink("real.env", link); err != nil {
+		t.Fatal(err)
+	}
+	if err := upsertEnv(link, map[string]string{"QUBE_URL": "u", "QUBE_API_KEY": "k", "QUBE_WEBHOOK_SECRET": "s"}); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("the link must stay a link: %v %v", info, err)
+	}
+	got, _ := os.ReadFile(filepath.Join(dir, "real.env"))
+	if string(got) != "QUBE_URL=u\nQUBE_API_KEY=k\nQUBE_WEBHOOK_SECRET=s\n" {
+		t.Fatalf("got %q", got)
+	}
+	if info, _ := os.Stat(link); info.Mode().Perm() != 0o600 {
+		t.Fatalf("new file mode = %o", info.Mode().Perm())
 	}
 }
 

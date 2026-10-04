@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/qubeintegrations/qube-cli/internal/api"
@@ -201,22 +202,36 @@ var secretKeys = []string{"QUBE_API_KEY", "QUBE_WEBHOOK_SECRET"}
 
 // upsertEnv replaces the QUBE_* lines of a dotenv file (or appends them), keeps every
 // other line byte-for-byte, and writes atomically so an interrupted write loses nothing.
+// A replaced line keeps its `export `, and appended lines get one when the file already
+// exports, so a file that is `source`d still exports every QUBE_* variable. When path is a
+// symbolic link, the file it points to is rewritten and the link stays a link.
 func upsertEnv(path string, kv map[string]string) error {
-	existing, err := os.ReadFile(path)
+	target, err := linkTarget(path)
+	if err != nil {
+		return err
+	}
+	existing, err := os.ReadFile(target)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	var out []string
 	seen := map[string]bool{}
+	export := ""
 	body := strings.TrimRight(string(existing), "\n")
 	var lines []string
 	if body != "" {
 		lines = strings.Split(body, "\n")
 	}
 	for _, line := range lines {
-		key := strings.TrimSpace(strings.TrimPrefix(strings.SplitN(line, "=", 2)[0], "export "))
+		left := strings.SplitN(line, "=", 2)[0]
+		key := strings.TrimSpace(left)
+		if strings.HasPrefix(key, "export ") {
+			key = strings.TrimSpace(strings.TrimPrefix(key, "export "))
+			export = "export "
+		}
 		if v, ok := kv[key]; ok && strings.Contains(line, "=") {
-			out = append(out, key+"="+v)
+			// whatever came before the name (indentation, `export `) stays as it was
+			out = append(out, left[:strings.Index(left, key)]+key+"="+v)
 			seen[key] = true
 		} else {
 			out = append(out, line)
@@ -224,13 +239,45 @@ func upsertEnv(path string, kv map[string]string) error {
 	}
 	for _, k := range envKeys {
 		if !seen[k] {
-			out = append(out, k+"="+kv[k])
+			out = append(out, export+k+"="+kv[k])
 		}
 	}
 	text := strings.TrimRight(strings.Join(out, "\n"), "\n") + "\n"
 	mode := os.FileMode(0o600)
-	if info, err := os.Stat(path); err == nil {
+	if info, err := os.Stat(target); err == nil {
 		mode = info.Mode().Perm()
 	}
-	return config.WriteFileAtomic(path, []byte(text), mode)
+	return config.WriteFileAtomic(target, []byte(text), mode)
+}
+
+// linkTarget follows path through any symbolic links to the file they name, so an atomic
+// rename replaces that file rather than the link. A link to a file that doesn't exist yet
+// resolves to where that file would be created.
+func linkTarget(path string) (string, error) {
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		return real, nil
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+	for i := 0; i < 40; i++ {
+		info, err := os.Lstat(path)
+		if os.IsNotExist(err) {
+			return path, nil
+		}
+		if err != nil {
+			return "", err
+		}
+		if info.Mode()&os.ModeSymlink == 0 {
+			return path, nil
+		}
+		dest, err := os.Readlink(path)
+		if err != nil {
+			return "", err
+		}
+		if !filepath.IsAbs(dest) {
+			dest = filepath.Join(filepath.Dir(path), dest)
+		}
+		path = dest
+	}
+	return "", fmt.Errorf("%s: too many levels of symbolic links", path)
 }
