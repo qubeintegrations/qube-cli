@@ -380,8 +380,8 @@ Adds an invoice: what a customer owes for a sale they didn't pay in full when it
 sale paid in full is a sales receipt). customer_ref is required. Each line in invoice_line_add
 names an item_ref and two of quantity, rate and amount; QuickBooks works out the third. An
 inventory item on an invoice lowers stock and posts its cost of goods sold. To invoice a sales
-order, link it with link_to_txn_id. The sync_order workflow template adds the customer and any
-missing items first.
+order, link it with link_to_txn_id. The create_invoice workflow template adds the customer and
+any missing items first.
 (--help --json has the whole description.)
 
 Flags:
