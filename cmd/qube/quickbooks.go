@@ -665,6 +665,54 @@ type workflowIssue struct {
 	Message string `json:"message"`
 }
 
+// templateColumn is the TEMPLATE cell of `workflows list`: the template a workflow's chart is a
+// version of, and whether that template has changed since (the API's `template` field).
+func templateColumn(v interface{}) string {
+	t, ok := v.(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	key := str(t["key"])
+	switch str(t["status"]) {
+	case "up_to_date":
+		return key
+	case "update_available":
+		return key + ": update available"
+	case "update_available_customized":
+		return key + ": update available (edited)"
+	case "removed":
+		return key + ": no longer shipped"
+	default:
+		return key + ": " + str(t["status"])
+	}
+}
+
+// templateUpdateHint is the command that gives a workflow its template's current chart, or ""
+// when there is nothing to take. Installing again with --replace is how a workflow takes it; a
+// published one takes --publish too, or production keeps running the old version.
+func templateUpdateHint(w map[string]interface{}) string {
+	t, ok := w["template"].(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	status := str(t["status"])
+	if status != "update_available" && status != "update_available_customized" {
+		return ""
+	}
+	cmd := "qube workflows install " + str(t["key"])
+	if key := str(w["key"]); key != str(t["key"]) {
+		cmd += " --as " + key
+	}
+	cmd += " --replace"
+	if str(w["state"]) == "published" {
+		cmd += " --publish"
+	}
+	if status == "update_available_customized" {
+		cmd += "   # replaces the edits made to " + str(w["key"])
+	}
+	return cmd
+}
+
 func (c *ctx) workflows(args []string) {
 	if len(args) == 0 {
 		args = []string{"list"}
@@ -683,10 +731,20 @@ func (c *ctx) workflows(args []string) {
 			return
 		}
 		var rows [][]string
+		var updates []string
 		for _, w := range out.Data {
-			rows = append(rows, []string{str(w["key"]), str(w["name"]), str(w["state"]), str(w["published_version"]), str(w["updated_at"])})
+			rows = append(rows, []string{str(w["key"]), str(w["name"]), str(w["state"]), str(w["published_version"]), templateColumn(w["template"]), str(w["updated_at"])})
+			if hint := templateUpdateHint(w); hint != "" {
+				updates = append(updates, hint)
+			}
 		}
-		ui.Table(os.Stdout, []string{"KEY", "NAME", "STATE", "PUBLISHED", "UPDATED"}, rows, "No workflows yet: `qube workflows push chart.json` creates one.")
+		ui.Table(os.Stdout, []string{"KEY", "NAME", "STATE", "PUBLISHED", "TEMPLATE", "UPDATED"}, rows, "No workflows yet: `qube workflows push chart.json` creates one.")
+		if len(updates) > 0 {
+			ui.Info("\nNewer template versions are available. Installing again takes the current one:")
+			for _, hint := range updates {
+				ui.Info("  %s", hint)
+			}
+		}
 	case "show":
 		if len(args) < 2 {
 			ui.Usage("usage: qube workflows show KEY")

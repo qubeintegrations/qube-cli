@@ -441,6 +441,61 @@ func TestWorkflowsPublish(t *testing.T) {
 	}
 }
 
+// The API's `template` field: which template a workflow's chart is a version of, and whether
+// that template has changed since. The list shows it, and names the command that takes the update.
+func TestWorkflowsListShowsTemplates(t *testing.T) {
+	c := newAPITest(t, map[string]http.HandlerFunc{
+		"/api/v2/workflows": func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"data": []interface{}{
+				map[string]interface{}{"key": "create_invoice", "name": "Create an invoice", "state": "draft",
+					"template": map[string]interface{}{"key": "create_invoice", "status": "up_to_date"}},
+				map[string]interface{}{"key": "void_transaction", "name": "Void", "state": "published", "published_version": float64(1),
+					"template": map[string]interface{}{"key": "void_transaction", "status": "update_available"}},
+				map[string]interface{}{"key": "payments", "name": "Payments", "state": "draft",
+					"template": map[string]interface{}{"key": "record_payment", "status": "update_available_customized"}},
+				map[string]interface{}{"key": "sync_order", "name": "Sync order", "state": "draft", "template": nil},
+			}})
+		},
+	})
+	setJSON(t, false)
+	out := captureStdout(t, func() { c.workflows([]string{"list"}) })
+	for _, want := range []string{"TEMPLATE", "void_transaction: update available", "record_payment: update available (edited)"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output lacks %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestTemplateUpdateHint(t *testing.T) {
+	cases := []struct {
+		workflow map[string]interface{}
+		want     string
+	}{
+		{map[string]interface{}{"key": "void_transaction", "state": "published",
+			"template": map[string]interface{}{"key": "void_transaction", "status": "update_available"}},
+			"qube workflows install void_transaction --replace --publish"},
+		{map[string]interface{}{"key": "payments", "state": "draft",
+			"template": map[string]interface{}{"key": "record_payment", "status": "update_available_customized"}},
+			"qube workflows install record_payment --as payments --replace   # replaces the edits made to payments"},
+		{map[string]interface{}{"key": "create_invoice", "state": "draft",
+			"template": map[string]interface{}{"key": "create_invoice", "status": "up_to_date"}}, ""},
+		{map[string]interface{}{"key": "old", "state": "draft",
+			"template": map[string]interface{}{"key": "sync_order", "status": "removed"}}, ""},
+		{map[string]interface{}{"key": "sync_order", "state": "draft", "template": nil}, ""},
+	}
+	for _, tc := range cases {
+		if got := templateUpdateHint(tc.workflow); got != tc.want {
+			t.Errorf("templateUpdateHint(%v) = %q, want %q", tc.workflow["key"], got, tc.want)
+		}
+	}
+	if got := templateColumn(map[string]interface{}{"key": "sync_order", "status": "removed"}); got != "sync_order: no longer shipped" {
+		t.Errorf("removed column = %q", got)
+	}
+	if got := templateColumn(nil); got != "" {
+		t.Errorf("no template column = %q", got)
+	}
+}
+
 func TestWorkflowsInstall(t *testing.T) {
 	var gotMethod, gotPath string
 	var gotBody map[string]interface{}
