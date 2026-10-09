@@ -576,8 +576,9 @@ func around(s, sub string) string {
 	return s[start:end]
 }
 
-// shellWords splits a POSIX shell command line into its words: single quotes (with '\''),
-// double quotes and backslashes, enough for the examples help prints.
+// shellWords splits a POSIX shell command line into its words: single quotes (a quote inside
+// them is written close, \', reopen), double quotes and backslashes, enough for the examples
+// help prints.
 func shellWords(line string) []string {
 	var out []string
 	var w strings.Builder

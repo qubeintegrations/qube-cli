@@ -394,12 +394,18 @@ func captureStdout(t *testing.T, fn func()) string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// drain the pipe while fn writes: its buffer is small (about 4 KB on Windows), and a
+	// write past it would wait forever for a reader
+	done := make(chan []byte)
+	go func() {
+		data, _ := io.ReadAll(r)
+		done <- data
+	}()
 	os.Stdout = w
 	fn()
 	_ = w.Close()
 	os.Stdout = old
-	data, _ := io.ReadAll(r)
-	return string(data)
+	return string(<-done)
 }
 
 // setenv is t.Setenv, which Go 1.16 lacks.
