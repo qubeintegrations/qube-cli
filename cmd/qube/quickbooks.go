@@ -113,6 +113,9 @@ func (c *ctx) connections(args []string) {
 				rows = append(rows, []string{f, str(v)})
 			}
 		}
+		if index, ok := out.Data["name_index"].(map[string]interface{}); ok {
+			rows = append(rows, []string{"name_index", nameIndexSummary(index)})
+		}
 		if links, ok := out.Data["links"].(map[string]interface{}); ok {
 			if v := links["ui"]; v != nil && str(v) != "" {
 				rows = append(rows, []string{"dashboard", str(v)})

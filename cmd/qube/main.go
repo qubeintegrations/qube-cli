@@ -118,6 +118,8 @@ func main() {
 		c.sessions(args[1:])
 	case "connections":
 		c.connections(args[1:])
+	case "match":
+		c.match(args[1:])
 	case "requests":
 		c.requests(args[1:])
 	case "simulator":
@@ -185,8 +187,8 @@ QuickBooks operations (every one the host's v2 API has, read from its OpenAPI do
                                    queue it: e.g. qb customers list --max-returned 5;
                                    --wait waits for QuickBooks' answer (every page) and prints it
 
-Connections, requests, the simulator and workflows (as the default app, or --app). [connection] may
-be left out: it is then --connection, or the default from ` + "`qube use --connection`" + `.
+Connections, matching, requests, the simulator and workflows (as the default app, or --app). [connection]
+may be left out: it is then --connection, or the default from ` + "`qube use --connection`" + `.
   connections list                                          * marks the default
   connections create [--simulated] [--name N] [--redirect-url U] [--use]   (--use: make it the default)
   connections show [connection]                             (table, or --json)
@@ -195,6 +197,11 @@ be left out: it is then --connection, or the default from ` + "`qube use --conne
   connections qwc [connection] [--output FILE]              the .qwc file the Web Connector needs
   connections password [connection] [--stdin]               a new Web Connector password (never as a flag)
   connections onboarding-url [connection]                   a fresh onboarding link
+  match [connection] <kind> <name> [--parent P] [--exact-only] [--min-score S]
+        [--email E] [--phone P] [--account-number N] [--company-name C] [--city C] [--postal-code Z]
+                                   the records a name could mean (exact, strong, candidates or none),
+                                   from the name index of a realtime or simulated connection;
+                                   kind: customer, vendor, item, account, entity... (qube match -h)
   requests list [connection] [--page N] [--page-size N] [--state S] [--webhook-state S]
                               [--search TEXT] [--sort inserted_at|updated_at] [--sort-direction asc|desc]
   requests show [connection] <id>                           (JSON)

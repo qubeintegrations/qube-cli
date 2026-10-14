@@ -8,9 +8,10 @@ import (
 
 // The command tree the completion scripts describe. Keep in step with main() and usage().
 var commandTree = map[string][]string{
-	"":            {"login", "logout", "status", "whoami", "sessions", "apps", "use", "env", "connections", "requests", "simulator", "workflows", "qb", "api", "completion", "version", "help"},
+	"":            {"login", "logout", "status", "whoami", "sessions", "apps", "use", "env", "connections", "match", "requests", "simulator", "workflows", "qb", "api", "completion", "version", "help"},
 	"sessions":    {"revoke"},
 	"connections": {"list", "create", "show", "update", "delete", "qwc", "password", "onboarding-url"},
+	"match":       matchKinds,
 	"requests":    {"list", "show", "pages", "tail", "discard"},
 	"simulator":   {"show", "reset", "sync", "faults"},
 	"workflows":   {"list", "show", "push", "validate", "publish", "unpublish", "delete", "versions", "usage", "schema", "templates", "install", "run", "runs", "decide", "cancel", "delete-run"},

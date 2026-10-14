@@ -11,6 +11,7 @@ qube env --write .env               # QUBE_URL / QUBE_API_KEY / QUBE_WEBHOOK_SEC
 qube connections create --simulated --name "Local dev" --use   # --use: the default connection
 qube qb customers list <connection> --max-returned 5 --wait   # prints QuickBooks' answer
 qube qb invoices create <connection> --data @invoice.json
+qube match <connection> customer "ACME, Inc." --email ap@acme.example   # the records a name could mean
 qube requests list <connection> --state error
 qube requests discard <connection> <id>
 qube simulator faults <connection> --next 3100
@@ -93,13 +94,34 @@ qube qb items list <connection> --iterator --max-returned 100 --wait   # every p
   `QUBE_CACHE_DIR` overrides) and read again after a day, when it names something the list doesn't have,
   or on `qube qb --refresh`. If the host can't be reached, an older list is used, with a warning.
 
+## Matching names: `qube match`
+
+`qube match` asks which records in a connection's company file a name could mean, from QuBe Sync's
+index of the file's names (realtime and simulated connections only). It answers at once: `exact` (the
+one record with that full name), `strong` (likely, not certain: `Acme Inc` and `Acme LLC` are strong
+for each other), `candidates` (best first) or `none`, with each record's `list_id`.
+
+```bash
+qube match <connection> customer "ACME, Inc." --email ap@acme.example
+qube match <connection> customer Kitchen --parent Smith          # a job under a customer
+qube match <connection> entity "Riverbend Electric"              # customers, vendors, employees and other names
+qube match <connection> item Consulting --exact-only             # exact or none, never a fuzzy match
+```
+
+A customer, vendor, employee or other name can be matched on more than its name: `--account-number`,
+`--email`, `--phone` and `--postal-code` can make a strong match, and `--city` and `--company-name`
+rank candidates. `qube match -h` lists the kinds and flags, and `--json` prints the API's answer. The
+first match on a connection starts building its index and is refused until it's in (exit 1); a
+simulated connection builds it as `qube simulator sync` runs sessions, and `qube connections show`
+shows its state.
+
 ## Production apps
 
 In a production app, every request that changes something asks first, naming the app: every
 `qube qb` operation except `list` (each one writes to the customer's real company file), creating or
 changing a connection (its password and onboarding link too), discarding a request, driving the
 simulator, every workflow change, run, answer or cancellation, and `qube api` with any method but `GET`.
-Reads never ask, and neither do `workflows validate` and `connections qwc`, which change nothing.
+Reads never ask, and neither do `workflows validate`, `connections qwc` and `match`, which change nothing.
 Removing something (a connection, a workflow, a run) asks in any app. A script answers with `--yes`.
 Without a terminal, or under `--json`, a request that would ask is refused until `--yes` is given, so
 nothing reaches a production company file by accident. Sessions reach production apps only when you
@@ -146,8 +168,8 @@ The OpenAPI document `qube qb` reads is public and is fetched without the token.
 
 `qube login --read-only` asks for a session that can look but not change anything; whoever approves
 it in the dashboard sees the request preselected and has the last word. A read-only session can list
-and show everything its reach allows, run QuickBooks queries (`qube qb ... list`), validate charts
-and download a connection's QWC file. It can't create, change, delete, discard, run or answer
+and show everything its reach allows, run QuickBooks queries (`qube qb ... list`), validate charts,
+match names and download a connection's QWC file. It can't create, change, delete, discard, run or answer
 anything, and it can't read an app's API key or webhook secret, so `qube env` isn't available to it.
 The server enforces this; the CLI also refuses such a command before sending it. `qube status` and
 `qube sessions` show each session's access.

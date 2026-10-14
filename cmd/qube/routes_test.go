@@ -51,10 +51,7 @@ func TestV2RoutesHaveCommands(t *testing.T) {
 // The list matches the spec, when a qube checkout sits beside this one (or QUBE_REPO names
 // one). CI has no checkout and relies on the list; `-update` rewrites it.
 func TestV2RoutesMatchSpec(t *testing.T) {
-	repo := os.Getenv("QUBE_REPO")
-	if repo == "" {
-		repo = filepath.Join("..", "..", "..", "qube")
-	}
+	repo := qubeRepo()
 	var spec []string
 	for _, f := range []string{"connections.json", "workflows.json"} {
 		data, err := os.ReadFile(filepath.Join(repo, "priv", "openapi", f))
@@ -77,6 +74,14 @@ func TestV2RoutesMatchSpec(t *testing.T) {
 	if got := readGolden(t); strings.Join(got, "\n") != strings.Join(spec, "\n") {
 		t.Fatalf("%s is out of date with %s: run `go test ./cmd/qube -run TestV2RoutesMatchSpec -update`\nlist: %v\nspec: %v", routesGolden, repo, got, spec)
 	}
+}
+
+// qubeRepo is the qube checkout the spec checks read: QUBE_REPO, else the one beside this one.
+func qubeRepo() string {
+	if repo := os.Getenv("QUBE_REPO"); repo != "" {
+		return repo
+	}
+	return filepath.Join("..", "..", "..", "qube")
 }
 
 // specRoutes reads an OpenAPI document's operations, leaving out the QuickBooks ones (they
