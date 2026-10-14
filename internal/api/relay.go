@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 )
@@ -96,6 +97,25 @@ func (c *Client) CreateRelay(appID, deviceID string) (*RelayGrant, error) {
 		return nil, err
 	}
 	return &out, nil
+}
+
+// FindRelay gets this machine's relay for the app without creating one
+// (GET /api/cli/apps/:app_id/relays?device_id=), so it never takes over another machine's:
+// nil when the machine has none (a 404 relay_not_found). A server from before this route
+// answers a 404 without the /api/cli error envelope, so the *Error has no Code.
+func (c *Client) FindRelay(appID, deviceID string) (*Relay, error) {
+	var out struct {
+		Relay Relay `json:"relay"`
+	}
+	err := c.Do("GET", relaysPath(appID), url.Values{"device_id": {deviceID}}, nil, &out)
+	var e *Error
+	if errors.As(err, &e) && e.Status == http.StatusNotFound && e.Code == "relay_not_found" {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &out.Relay, nil
 }
 
 // ForgetRelay deletes a relay (`qube listen --forget`): deliveries to its URL are refused

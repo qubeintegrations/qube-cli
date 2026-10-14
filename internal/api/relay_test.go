@@ -101,6 +101,12 @@ func TestRelayCalls(t *testing.T) {
 	srv, _ := server(t, func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		calls = append(calls, call{r.Method, r.URL.Path, r.URL.RawQuery, string(body)})
+		if r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/relays") {
+			ok(w, map[string]interface{}{
+				"relay": map[string]string{"id": "rl_x", "url": "https://q.example/relay/rl_x", "app_id": "app1"},
+			})
+			return
+		}
 		if r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/relays") {
 			ok(w, map[string]interface{}{
 				"relay":    map[string]string{"id": "rl_x", "url": "https://q.example/relay/rl_x", "app_id": "app1"},
@@ -112,6 +118,10 @@ func TestRelayCalls(t *testing.T) {
 	})
 	c := New(srv.URL, 0)
 	c.Token = "qct_x"
+	relay, err := c.FindRelay("app1", "4f1c2a3b-5d6e-4f70-8a9b-0c1d2e3f4a5b")
+	if err != nil || relay == nil || relay.ID != "rl_x" || relay.URL != "https://q.example/relay/rl_x" || relay.AppID != "app1" {
+		t.Fatalf("relay = %+v, %v", relay, err)
+	}
 	grant, err := c.CreateRelay("app1", "4f1c2a3b-5d6e-4f70-8a9b-0c1d2e3f4a5b")
 	if err != nil || grant.Relay.ID != "rl_x" || grant.Relay.URL != "https://q.example/relay/rl_x" || grant.Replaced == nil || grant.Replaced.LastPolledAt != "" {
 		t.Fatalf("grant = %+v, %v", grant, err)
@@ -126,6 +136,7 @@ func TestRelayCalls(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []call{
+		{"GET", "/api/cli/apps/app1/relays", "device_id=4f1c2a3b-5d6e-4f70-8a9b-0c1d2e3f4a5b", ""},
 		{"POST", "/api/cli/apps/app1/relays", "", `{"device_id":"4f1c2a3b-5d6e-4f70-8a9b-0c1d2e3f4a5b"}`},
 		{"POST", "/api/cli/apps/app1/relays/rl_x/deliveries/att_1", "", `{"body":"ok","status":200}`},
 		{"DELETE", "/api/cli/apps/app1/relays/rl_x/listen", "session=sess-1", ""},
@@ -138,5 +149,32 @@ func TestRelayCalls(t *testing.T) {
 		if calls[i] != want[i] {
 			t.Errorf("call %d = %+v, want %+v", i, calls[i], want[i])
 		}
+	}
+}
+
+// FindRelay: no relay for the machine is nil; any other 404 is an *Error, without a Code
+// when the server predates the route (Phoenix's own 404).
+func TestFindRelayNotFound(t *testing.T) {
+	answer := `{"error":{"code":"relay_not_found","message":"This machine has no qube listen URL for this app."}}`
+	srv, _ := server(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(404)
+		_, _ = io.WriteString(w, answer)
+	})
+	c := New(srv.URL, 0)
+	c.Token = "qct_x"
+	if relay, err := c.FindRelay("app1", "d"); relay != nil || err != nil {
+		t.Fatalf("relay_not_found: %+v, %v", relay, err)
+	}
+
+	answer = `{"error":{"code":"not_found","message":"no such app in this organization"}}`
+	var e *Error
+	if relay, err := c.FindRelay("app1", "d"); relay != nil || !errors.As(err, &e) || e.Code != "not_found" {
+		t.Fatalf("unknown app: %+v, %v", relay, err)
+	}
+
+	answer = `{"errors":{"detail":"Not Found"}}`
+	if relay, err := c.FindRelay("app1", "d"); relay != nil || !errors.As(err, &e) || e.Status != 404 || e.Code != "" {
+		t.Fatalf("no route: %+v, %v", relay, err)
 	}
 }

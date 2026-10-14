@@ -67,15 +67,17 @@ func captureStderr(t *testing.T, fn func()) string {
 	return string(<-done)
 }
 
-// fakeRelay stands in for QuBe Sync's relay routes for app1: the relay is rl_test. Each poll
-// takes the next of polls; once they run out, a poll is answered 409 relay_taken_over, which
-// ends `qube listen` after its deliveries in flight are reported.
+// fakeRelay stands in for QuBe Sync's relay routes for app1: the relay is rl_test, and a
+// lookup finds it. Each poll takes the next of polls; once they run out, a poll is answered
+// 409 relay_taken_over, which ends `qube listen` after its deliveries in flight are reported.
 type fakeRelay struct {
 	mu       sync.Mutex
 	create   http.HandlerFunc // overrides the create answer
+	lookup   http.HandlerFunc // overrides the lookup answer
 	grant    map[string]interface{}
 	polls    []http.HandlerFunc
 	creates  []map[string]string
+	lookups  []string // device ids looked up
 	sessions []string
 	results  map[string]json.RawMessage
 	stops    []string
@@ -95,6 +97,17 @@ func newFakeRelay(polls ...http.HandlerFunc) *fakeRelay {
 func (f *fakeRelay) handlers() map[string]http.HandlerFunc {
 	return map[string]http.HandlerFunc{
 		"/api/cli/apps/app1/relays": func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == "GET" {
+				f.mu.Lock()
+				f.lookups = append(f.lookups, r.URL.Query().Get("device_id"))
+				f.mu.Unlock()
+				if f.lookup != nil {
+					f.lookup(w, r)
+					return
+				}
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{"relay": f.grant["relay"]})
+				return
+			}
 			if f.create != nil {
 				f.create(w, r)
 				return
@@ -152,6 +165,14 @@ func cliError(status int, code, message string) http.HandlerFunc {
 		w.WriteHeader(status)
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": map[string]string{"code": code, "message": message}})
 	}
+}
+
+// noRoute is how QuBe Sync (Phoenix) answers a route it doesn't have: a 404 without the
+// /api/cli envelope.
+func noRoute(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, _ = io.WriteString(w, `{"errors":{"detail":"Not Found"}}`)
 }
 
 func noContent(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }
@@ -522,14 +543,15 @@ func TestListenForget(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := captureStdout(t, func() { err = c.runListen(opts) })
-	if err != nil || !strings.Contains(out, "nothing to forget") || len(relay.creates) != 0 {
-		t.Fatalf("err = %v, out = %q, creates = %v", err, out, relay.creates)
+	if err != nil || !strings.Contains(out, "nothing to forget") || len(relay.lookups) != 0 || len(relay.creates) != 0 {
+		t.Fatalf("err = %v, out = %q, lookups = %v, creates = %v", err, out, relay.lookups, relay.creates)
 	}
 
+	// the URL is looked up, never created
 	deviceID, _ := config.DeviceID()
 	out = captureStdout(t, func() { err = c.runListen(opts) })
-	if err != nil || relay.forgets != 1 || len(relay.creates) != 1 || relay.creates[0]["device_id"] != deviceID {
-		t.Fatalf("err = %v, forgets = %d, creates = %v", err, relay.forgets, relay.creates)
+	if err != nil || relay.forgets != 1 || len(relay.lookups) != 1 || relay.lookups[0] != deviceID || len(relay.creates) != 0 {
+		t.Fatalf("err = %v, forgets = %d, lookups = %v, creates = %v", err, relay.forgets, relay.lookups, relay.creates)
 	}
 	if !strings.Contains(out, "Forgot "+testRelayURL) || len(relay.sessions) != 0 {
 		t.Fatalf("out = %q, polls = %v", out, relay.sessions)
@@ -540,8 +562,106 @@ func TestListenForget(t *testing.T) {
 	_ = captureStderr(t, func() {
 		_ = captureStdout(t, func() { err = c.runListen(opts) })
 	})
-	if relay.forgets != 2 || len(relay.creates) != 3 || len(relay.sessions) != 1 {
-		t.Fatalf("forgets = %d, creates = %d, polls = %d", relay.forgets, len(relay.creates), len(relay.sessions))
+	if relay.forgets != 2 || len(relay.lookups) != 2 || len(relay.creates) != 1 || len(relay.sessions) != 1 {
+		t.Fatalf("forgets = %d, lookups = %d, creates = %d, polls = %d", relay.forgets, len(relay.lookups), len(relay.creates), len(relay.sessions))
+	}
+}
+
+// forgetAlone runs `qube listen --forget` with c, returning stdout and stderr.
+func forgetAlone(t *testing.T, c *ctx) (string, string, error) {
+	t.Helper()
+	opts, err := listenOptionsFrom("", "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out string
+	stderr := captureStderr(t, func() {
+		out = captureStdout(t, func() { err = c.runListen(opts) })
+	})
+	return out, stderr, err
+}
+
+// A machine that has listened, but not for this app, has nothing to forget, and no URL is
+// made for it.
+func TestListenForgetWithoutAURL(t *testing.T) {
+	withDeviceDir(t)
+	setJSON(t, false)
+	relay := newFakeRelay()
+	relay.lookup = cliError(404, "relay_not_found", "This machine has no qube listen URL for this app.")
+	c := newAPITest(t, relay.handlers())
+	c.yes = true
+	if _, err := config.DeviceID(); err != nil {
+		t.Fatal(err)
+	}
+
+	out, _, err := forgetAlone(t, c)
+	if err != nil || !strings.Contains(out, "This machine has no qube listen URL for App; nothing to forget.") || len(relay.lookups) != 1 || len(relay.creates) != 0 || relay.forgets != 0 {
+		t.Fatalf("err = %v, out = %q, lookups = %v, creates = %v, forgets = %d", err, out, relay.lookups, relay.creates, relay.forgets)
+	}
+
+	setJSON(t, true)
+	out, _, err = forgetAlone(t, c)
+	if err != nil || strings.TrimSpace(out) != `{"forgotten":null}` {
+		t.Fatalf("err = %v, out = %q", err, out)
+	}
+}
+
+// With all of the user's URLs for the app on other machines, forgetting here takes none of
+// them over: the create, which for this machine would take over the least recently used one,
+// is never sent.
+func TestListenForgetTakesNoURLOver(t *testing.T) {
+	withDeviceDir(t)
+	setJSON(t, false)
+	relay := newFakeRelay()
+	relay.lookup = cliError(404, "relay_not_found", "This machine has no qube listen URL for this app.")
+	relay.grant["replaced"] = map[string]interface{}{"id": "rl_old", "url": "https://qubesync.example/relay/rl_old", "last_polled_at": "2026-09-01T12:00:00Z"}
+	c := newAPITest(t, relay.handlers())
+	c.yes = true
+	if _, err := config.DeviceID(); err != nil {
+		t.Fatal(err)
+	}
+
+	out, stderr, err := forgetAlone(t, c)
+	if err != nil || !strings.Contains(out, "nothing to forget") || len(relay.creates) != 0 || relay.forgets != 0 || strings.Contains(stderr, "took over") {
+		t.Fatalf("err = %v, out = %q, stderr = %q, creates = %v, forgets = %d", err, out, stderr, relay.creates, relay.forgets)
+	}
+}
+
+// A server from before the lookup (Phoenix's own 404) is asked with the create instead, as
+// before; one whose 404 has the envelope (an unknown app) is not.
+func TestListenForgetOnAServerWithoutTheLookup(t *testing.T) {
+	withDeviceDir(t)
+	setJSON(t, false)
+	relay := newFakeRelay()
+	relay.lookup = noRoute
+	c := newAPITest(t, relay.handlers())
+	c.yes = true
+	deviceID, _ := config.DeviceID()
+
+	out, _, err := forgetAlone(t, c)
+	if err != nil || !strings.Contains(out, "Forgot "+testRelayURL) || relay.forgets != 1 || len(relay.creates) != 1 || relay.creates[0]["device_id"] != deviceID {
+		t.Fatalf("err = %v, out = %q, forgets = %d, creates = %v", err, out, relay.forgets, relay.creates)
+	}
+
+	// the create took over another machine's URL: forgetting says so
+	relay.grant["replaced"] = map[string]interface{}{"id": "rl_old", "url": "https://qubesync.example/relay/rl_old", "last_polled_at": nil}
+	_, stderr, err := forgetAlone(t, c)
+	if err != nil || !strings.Contains(stderr, "took over https://qubesync.example/relay/rl_old (never polled)") {
+		t.Fatalf("err = %v, stderr = %q", err, stderr)
+	}
+
+	// all of the user's URLs listening, none of them this machine's
+	relay.create = cliError(422, "too_many_relays", "All 10 of your qube listen URLs for this app are in use.")
+	out, _, err = forgetAlone(t, c)
+	if err != nil || !strings.Contains(out, "nothing to forget") || relay.forgets != 2 {
+		t.Fatalf("err = %v, out = %q, forgets = %d", err, out, relay.forgets)
+	}
+
+	relay.create = nil
+	relay.lookup = cliError(404, "not_found", "no such app in this organization")
+	creates := len(relay.creates)
+	if _, _, err = forgetAlone(t, c); err == nil || err.Error() != "no such app in this organization" || len(relay.creates) != creates {
+		t.Fatalf("err = %v, creates = %d", err, len(relay.creates))
 	}
 }
 

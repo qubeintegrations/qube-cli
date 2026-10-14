@@ -183,15 +183,22 @@ func relayError(host string, err error) error {
 	return err
 }
 
-// forgetRelay deletes this machine's URL for the app (`--forget`). The server finds the URL
-// by device id only through POST .../relays, so a machine without one gets one made and
-// deleted at once; a machine that never listened anywhere has no device id and nothing to do.
+// forgetRelay deletes this machine's URL for the app (`--forget`). It finds the URL by device
+// id without creating one (findRelay); a machine that never listened anywhere has no device
+// id and nothing to do.
 func (c *ctx) forgetRelay(cl *api.Client, app *api.App) error {
 	deviceID, err := config.ExistingDeviceID()
 	if err != nil {
 		return err
 	}
-	nothing := func() error {
+	var relay *api.Relay
+	var replaced *api.ReplacedRelay
+	if deviceID != "" {
+		if relay, replaced, err = findRelay(c.host, cl, app.ID, deviceID); err != nil {
+			return err
+		}
+	}
+	if relay == nil {
 		if ui.JSON {
 			printJSONLine(map[string]interface{}{"forgotten": nil})
 		} else {
@@ -199,35 +206,48 @@ func (c *ctx) forgetRelay(cl *api.Client, app *api.App) error {
 		}
 		return nil
 	}
-	if deviceID == "" {
-		return nothing()
-	}
-	grant, err := cl.CreateRelay(app.ID, deviceID)
-	if err != nil {
-		var e *api.Error
-		// all of the user's URLs are in use, and none is this machine's
-		if errors.As(err, &e) && e.Code == "too_many_relays" {
-			return nothing()
-		}
-		return relayError(c.host, err)
-	}
-	confirm(fmt.Sprintf("Forget this machine's qube listen URL for %s (%s)? Deliveries to it will be refused, and the next qube listen here gets a new URL.", app.Name, grant.Relay.URL), c.yes)
-	if err := cl.ForgetRelay(app.ID, grant.Relay.ID); err != nil {
+	confirm(fmt.Sprintf("Forget this machine's qube listen URL for %s (%s)? Deliveries to it will be refused, and the next qube listen here gets a new URL.", app.Name, relay.URL), c.yes)
+	if err := cl.ForgetRelay(app.ID, relay.ID); err != nil {
 		return err
 	}
 	if ui.JSON {
-		out := map[string]interface{}{"forgotten": grant.Relay}
-		if grant.Replaced != nil {
-			out["replaced"] = grant.Replaced
+		out := map[string]interface{}{"forgotten": relay}
+		if replaced != nil {
+			out["replaced"] = replaced
 		}
 		printJSONLine(out)
 		return nil
 	}
-	fmt.Printf("Forgot %s: deliveries to it are refused from now on, and the next qube listen here gets a new URL.\n", grant.Relay.URL)
-	if grant.Replaced != nil {
-		ui.Info("%s", replacedNote(grant.Replaced))
+	fmt.Printf("Forgot %s: deliveries to it are refused from now on, and the next qube listen here gets a new URL.\n", relay.URL)
+	if replaced != nil {
+		ui.Info("%s", replacedNote(replaced))
 	}
 	return nil
+}
+
+// findRelay is this machine's relay for the app, or nil when it has none, looked up with
+// GET .../relays?device_id=, which never creates one or takes one over. Only a server from
+// before that route (a 404 without the /api/cli envelope's code) is asked with POST
+// .../relays instead, which creates the relay when there is none, and past the user's limit
+// first takes over the least recently used one (replaced).
+func findRelay(host string, cl *api.Client, appID, deviceID string) (*api.Relay, *api.ReplacedRelay, error) {
+	relay, err := cl.FindRelay(appID, deviceID)
+	var e *api.Error
+	switch {
+	case err == nil:
+		return relay, nil, nil
+	case !errors.As(err, &e) || e.Status != http.StatusNotFound || e.Code != "":
+		return nil, nil, relayError(host, err)
+	}
+	grant, err := cl.CreateRelay(appID, deviceID)
+	if err != nil {
+		// all of the user's URLs are in use, and none is this machine's
+		if errors.As(err, &e) && e.Code == "too_many_relays" {
+			return nil, nil, nil
+		}
+		return nil, nil, relayError(host, err)
+	}
+	return &grant.Relay, grant.Replaced, nil
 }
 
 // replacedNote says that this machine's new URL took over another of the user's, which no
