@@ -1,7 +1,8 @@
 # qube — the QuBe Sync command line
 
 Log in once from a terminal; then get your app's keys, create connections (simulated ones too),
-watch requests, drive the simulator and push workflows — from a shell, a script, or an agent.
+watch requests, receive webhooks on your machine, drive the simulator and push workflows — from a
+shell, a script, or an agent.
 
 ```bash
 qube login                          # opens the dashboard; confirm the code; sandbox apps by default
@@ -14,6 +15,7 @@ qube qb invoices create <connection> --data @invoice.json
 qube match <connection> customer "ACME, Inc." --email ap@acme.example   # the records a name could mean
 qube requests list <connection> --state error
 qube requests discard <connection> <id>
+qube listen --forward-to http://localhost:3000/webhooks/qube --write-env .env   # webhooks reach your local app
 qube simulator faults <connection> --next 3100
 qube simulator faults <connection> --next lost   # applied, then never answered: ends timed_out (--next ok clears)
 qube workflows install add_transaction --publish --replace   # safe to repeat; installs the resolve and ensure it calls too
@@ -116,6 +118,49 @@ it ready ahead of time, `qube connections name-index <connection> --webhook-url 
 and has `name_index.ready` sent to U when it's in. A simulated connection builds it as
 `qube simulator sync` runs sessions, and `qube connections show` shows its state.
 
+## Receiving webhooks on your machine: `qube listen`
+
+```bash
+qube listen --forward-to http://localhost:3000/webhooks/qube --write-env .env
+```
+
+`qube listen` gives this machine a QuBe Sync webhook URL for the app
+(`https://qubesync.com/relay/rl_...`) and forwards every delivery to it to the `--forward-to` URL,
+with the same body and headers. `X-QUBE-Signature` arrives unchanged, so your app checks it with
+`QUBE_WEBHOOK_SECRET` (from `qube env`) exactly as it will in production. There's no tunnel to
+install, and nothing on your machine is reachable from the internet.
+
+```
+Webhook URL for Acme Sandbox (the same every time on this machine):
+  https://qubesync.com/relay/rl_4f7k2m9q8t3w6x1z5c0v7b2n4h
+Forwarding to http://localhost:3000/webhooks/qube. Ctrl-C to stop.
+14:02:11  request 1f0c2a3b…  response_received  → POST /webhooks/qube  200  41 ms
+14:02:19  workflow_run.notification  customers_page #3  → POST /webhooks/qube  200  58 ms
+14:03:02  request 7d41e9a0…  response_received  → POST /webhooks/qube  500  12 ms  (QuBe will retry)
+```
+
+- Pass the URL as `webhook_url`: request answers, a workflow run's webhooks and notifications, and
+  name index events all come through it. `--write-env .env` keeps it in `.env` as
+  `QUBE_WEBHOOK_URL` and changes nothing else in the file. Without the flag, `qube listen` prints
+  the line to add when `./.env` doesn't have it.
+- The URL stays the same for the app on this machine, run after run and login after login, and
+  every config on the machine shares it.
+- A path or query that the `webhook_url` adds after the URL is added to `--forward-to` too: a
+  delivery to `<URL>/runs?src=qb` goes to `http://localhost:3000/webhooks/qube/runs?src=qb`.
+- Your app's answer is recorded as the delivery's outcome, as for any `webhook_url`. A 2xx
+  succeeds. Any other status, a redirect (never followed), no answer within 5 s or no connection
+  at all fails, and QuBe Sync retries it. While `qube listen` isn't running, deliveries fail the
+  same way, and **Resend webhook** in the dashboard sends one again.
+- `--json` prints the URL as the first line, then one JSON object per delivery, a line each:
+  `at`, `summary` (what it is: kind, ids and event), `path`, `status` or `error`, and `ms`.
+- It works with sandbox apps only, and read-only sessions may use it.
+- A second `qube listen` for the same URL (in another terminal, or under another config) takes
+  over, and the first one stops. Ctrl-C stops it (exit 130).
+- `qube listen --forget` deletes this machine's URL for the app (it asks first; `--yes` answers
+  for a script), and the next run gets a new one. With `--forward-to` too, it then listens on the
+  new URL. You can listen from 10 machines per app; an 11th takes over the URL that was used least
+  recently, says so, and that URL stops working.
+
 ## Production apps
 
 In a production app, every request that changes something asks first, naming the app: every
@@ -170,8 +215,9 @@ The OpenAPI document `qube qb` reads is public and is fetched without the token.
 `qube login --read-only` asks for a session that can look but not change anything; whoever approves
 it in the dashboard sees the request preselected and has the last word. A read-only session can list
 and show everything its reach allows, run QuickBooks queries (`qube qb ... list`), validate charts,
-match names and download a connection's QWC file. It can't create, change, delete, discard, run or answer
-anything, and it can't read an app's API key or webhook secret, so `qube env` isn't available to it.
+match names, download a connection's QWC file and run `qube listen`. It can't create, change,
+delete, discard, run or answer anything (a workflow's question, say), and it can't read an app's API
+key or webhook secret, so `qube env` isn't available to it.
 The server enforces this; the CLI also refuses such a command before sending it. `qube status` and
 `qube sessions` show each session's access.
 
@@ -182,6 +228,7 @@ The server enforces this; the CLI also refuses such a command before sending it.
 | Sessions (one per host), default host and default app | `$XDG_CONFIG_HOME/qube/credentials.json` (`~/Library/Application Support/qube/` on macOS, `%AppData%\qube\` on Windows), mode 0600, written atomically. `QUBE_CONFIG` overrides the path. |
 | Host | `--host`, else `QUBE_HOST`, else the host you last logged in to (`qube use --host H` changes it), else `https://qubesync.com`. |
 | HTTP timeout | `--timeout 30` (seconds) or `2m`; `QUBE_TIMEOUT`. Default 60 s. Ctrl-C cancels any command (exit 130). |
+| Device id | `$XDG_CONFIG_HOME/qube/device-id`, beside the credentials (`QUBE_CONFIG` doesn't move it): a random id for this machine, so `qube listen` gets the same URL for an app every time. Nothing secret. |
 | Browser | `QUBE_NO_BROWSER=1` keeps `qube login` from opening one (the URL is always printed). |
 | `qube qb` operation list | `$XDG_CACHE_HOME/qube/openapi-v2-<host>.json` (`~/Library/Caches/qube/` on macOS, `%LocalAppData%\qube\` on Windows). `QUBE_CACHE_DIR` overrides the directory. Holds nothing secret. |
 

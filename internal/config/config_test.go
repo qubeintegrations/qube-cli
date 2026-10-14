@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -105,5 +106,79 @@ func TestSessionExpired(t *testing.T) {
 	future := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
 	if !(Session{ExpiresAt: past}).Expired() || (Session{ExpiresAt: future}).Expired() || (Session{}).Expired() {
 		t.Fatal("expiry check")
+	}
+}
+
+// withConfigDir points os.UserConfigDir at a temp directory on every platform: HOME (macOS,
+// and Linux without XDG_CONFIG_HOME), XDG_CONFIG_HOME (Linux) and AppData (Windows).
+func withConfigDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	for _, key := range []string{"HOME", "XDG_CONFIG_HOME", "AppData"} {
+		key := key
+		old, had := os.LookupEnv(key)
+		os.Setenv(key, dir)
+		t.Cleanup(func() {
+			if had {
+				os.Setenv(key, old)
+			} else {
+				os.Unsetenv(key)
+			}
+		})
+	}
+	return dir
+}
+
+// The device id is made once, kept outside QUBE_CONFIG's file, and read back unchanged.
+func TestDeviceIDIsMadeOnceAndSharedAcrossConfigs(t *testing.T) {
+	dir := withConfigDir(t)
+	withConfig(t)
+	if id, err := ExistingDeviceID(); err != nil || id != "" {
+		t.Fatalf("before first use: %q %v", id, err)
+	}
+	id, err := DeviceID()
+	if err != nil || len(id) != 36 {
+		t.Fatalf("DeviceID() = %q, %v", id, err)
+	}
+	p, _ := DeviceIDPath()
+	if rel, err := filepath.Rel(dir, p); err != nil || strings.HasPrefix(rel, "..") || filepath.Base(p) != "device-id" {
+		t.Fatalf("device id at %s, outside %s", p, dir)
+	}
+	if runtime.GOOS != "windows" {
+		if info, _ := os.Stat(p); info.Mode().Perm() != 0o600 {
+			t.Fatalf("mode = %o", info.Mode().Perm())
+		}
+	}
+	// another config on the same machine gets the same id
+	withConfig(t)
+	again, err := DeviceID()
+	if err != nil || again != id {
+		t.Fatalf("second DeviceID() = %q, %v; want %q", again, err, id)
+	}
+	if existing, _ := ExistingDeviceID(); existing != id {
+		t.Fatalf("ExistingDeviceID() = %q", existing)
+	}
+	entries, _ := os.ReadDir(filepath.Dir(p))
+	if len(entries) != 1 {
+		t.Fatalf("a temp file was left behind: %v", entries)
+	}
+}
+
+// A device-id file that doesn't hold a UUID is replaced by a new one.
+func TestDeviceIDReplacesAnUnreadableFile(t *testing.T) {
+	withConfigDir(t)
+	p, _ := DeviceIDPath()
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("laptop\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	id, err := DeviceID()
+	if err != nil || len(id) != 36 {
+		t.Fatalf("DeviceID() = %q, %v", id, err)
+	}
+	if data, _ := os.ReadFile(p); strings.TrimSpace(string(data)) != id {
+		t.Fatalf("file holds %q", data)
 	}
 }

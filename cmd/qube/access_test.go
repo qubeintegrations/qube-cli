@@ -225,3 +225,32 @@ func TestReadOnlySessionReads(t *testing.T) {
 		t.Fatalf("a read-only session should still read; server saw %q", got)
 	}
 }
+
+// A read-only session may listen (and forget its URL): the relay hands it only webhooks
+// pointed at its own URL, data it can already read, so nothing is refused before sending.
+func TestReadOnlySessionMayListen(t *testing.T) {
+	withDeviceDir(t)
+	setJSON(t, true)
+	app, got := newLocalApp(t, func(w http.ResponseWriter, r *http.Request) {})
+	relay := newFakeRelay(deliver(delivery("att_1", "", "{}")))
+	c := newAPITest(t, relay.handlers())
+	s := c.cfg.Sessions[c.host]
+	s.Access = "read_only"
+	c.cfg.Sessions[c.host] = s
+	c.yes = true
+
+	var err error
+	_ = captureStdout(t, func() { err = c.runListen(forwardTo(t, app.URL)) })
+	if err == nil || !strings.Contains(err.Error(), "took over") {
+		t.Fatalf("err = %v", err)
+	}
+	if len(relay.creates) != 1 || got.method != "POST" || relay.results["att_1"] == nil {
+		t.Fatalf("creates = %v, local app got %q, results = %v", relay.creates, got.method, relay.results)
+	}
+
+	opts, _ := listenOptionsFrom("", "", true)
+	_ = captureStdout(t, func() { err = c.runListen(opts) })
+	if err != nil || relay.forgets != 1 {
+		t.Fatalf("forget: err = %v, forgets = %d", err, relay.forgets)
+	}
+}

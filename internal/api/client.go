@@ -98,11 +98,14 @@ func isDeviceFlow(path string) bool {
 }
 
 func (c *Client) newRequest(method, path string, query url.Values, body io.Reader) (*http.Request, error) {
+	return c.newRequestWithContext(c.Ctx, method, path, query, body)
+}
+
+func (c *Client) newRequestWithContext(ctx context.Context, method, path string, query url.Values, body io.Reader) (*http.Request, error) {
 	u := c.Host + path
 	if len(query) > 0 {
 		u += "?" + query.Encode()
 	}
-	ctx := c.Ctx
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -141,6 +144,13 @@ func (c *Client) newRequest(method, path string, query url.Values, body io.Reade
 // Do performs a request. body may be nil, a []byte of JSON, or any value to marshal.
 // out (if non-nil) receives the decoded JSON body.
 func (c *Client) Do(method, path string, query url.Values, body interface{}, out interface{}) error {
+	_, err := c.do(c.Ctx, c.HTTP, method, path, query, body, out)
+	return err
+}
+
+// do is Do with the context and HTTP client given; it also returns the answer's status (0
+// when there was none).
+func (c *Client) do(ctx context.Context, hc *http.Client, method, path string, query url.Values, body interface{}, out interface{}) (int, error) {
 	var reader io.Reader
 	if body != nil {
 		var data []byte
@@ -151,31 +161,31 @@ func (c *Client) Do(method, path string, query url.Values, body interface{}, out
 			var err error
 			data, err = json.Marshal(b)
 			if err != nil {
-				return err
+				return 0, err
 			}
 		}
 		reader = bytes.NewReader(data)
 	}
-	req, err := c.newRequest(method, path, query, reader)
+	req, err := c.newRequestWithContext(ctx, method, path, query, reader)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	res, err := c.HTTP.Do(req)
+	res, err := hc.Do(req)
 	if err != nil {
-		return unwrapCanceled(err)
+		return 0, unwrapCanceled(err)
 	}
 	defer res.Body.Close()
 	data, err := io.ReadAll(res.Body)
 	if err != nil {
-		return unwrapCanceled(err)
+		return 0, unwrapCanceled(err)
 	}
 	if res.StatusCode < 200 || res.StatusCode > 299 {
-		return errorFrom(res, data, path)
+		return res.StatusCode, errorFrom(res, data, path)
 	}
 	if out != nil && len(data) > 0 {
-		return json.Unmarshal(data, out)
+		return res.StatusCode, json.Unmarshal(data, out)
 	}
-	return nil
+	return res.StatusCode, nil
 }
 
 // Raw is Do without decoding: the response body as-is (for `qube api`).

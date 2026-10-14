@@ -206,6 +206,12 @@ var secretKeys = []string{"QUBE_API_KEY", "QUBE_WEBHOOK_SECRET"}
 // exports, so a file that is `source`d still exports every QUBE_* variable. When path is a
 // symbolic link, the file it points to is rewritten and the link stays a link.
 func upsertEnv(path string, kv map[string]string) error {
+	return upsertEnvKeys(path, envKeys, kv)
+}
+
+// upsertEnvKeys is upsertEnv for the given keys only, appending the missing ones in that
+// order: `qube listen --write-env` writes QUBE_WEBHOOK_URL and nothing else.
+func upsertEnvKeys(path string, keys []string, kv map[string]string) error {
 	target, err := linkTarget(path)
 	if err != nil {
 		return err
@@ -237,7 +243,7 @@ func upsertEnv(path string, kv map[string]string) error {
 			out = append(out, line)
 		}
 	}
-	for _, k := range envKeys {
+	for _, k := range keys {
 		if !seen[k] {
 			out = append(out, export+k+"="+kv[k])
 		}

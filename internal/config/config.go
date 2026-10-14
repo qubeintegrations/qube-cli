@@ -6,10 +6,13 @@ package config
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/qubeintegrations/qube-cli/internal/uuid"
 )
 
 type Session struct {
@@ -137,6 +140,62 @@ func WriteFileAtomic(path string, data []byte, mode os.FileMode) error {
 }
 
 func isWindows() bool { return os.PathSeparator == '\\' }
+
+// DeviceIDPath is where this machine's device id lives: os.UserConfigDir()/qube/device-id.
+// QUBE_CONFIG doesn't move it, so every config on the machine (an agent's own, say) shares it.
+func DeviceIDPath() (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "qube", "device-id"), nil
+}
+
+// ExistingDeviceID is this machine's device id, or "" when none was ever made here (or the
+// file doesn't hold a UUID). It never creates one.
+func ExistingDeviceID() (string, error) {
+	p, err := DeviceIDPath()
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(p)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	id := strings.TrimSpace(string(data))
+	if !uuid.Valid(id) {
+		return "", nil
+	}
+	return strings.ToLower(id), nil
+}
+
+// DeviceID is this machine's device id, made on first use: a random UUID, written
+// atomically with owner-only permissions. `qube listen` sends it, so QuBe Sync gives one
+// machine the same URL for an app every time. It identifies the machine, nothing more, and
+// isn't a secret.
+func DeviceID() (string, error) {
+	id, err := ExistingDeviceID()
+	if err != nil || id != "" {
+		return id, err
+	}
+	p, err := DeviceIDPath()
+	if err != nil {
+		return "", err
+	}
+	if id, err = uuid.New(); err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		return "", err
+	}
+	if err := WriteFileAtomic(p, []byte(id+"\n"), 0o600); err != nil {
+		return "", fmt.Errorf("saving this machine's device id: %w", err)
+	}
+	return id, nil
+}
 
 // ResolveHost picks the host for this invocation: an explicit --host or QUBE_HOST wins;
 // then the host of the last login (or the one chosen with `qube use --host`); then the

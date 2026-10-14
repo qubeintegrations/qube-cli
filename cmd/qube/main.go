@@ -122,6 +122,8 @@ func main() {
 		c.match(args[1:])
 	case "requests":
 		c.requests(args[1:])
+	case "listen":
+		c.listen(args[1:])
 	case "simulator":
 		c.simulator(args[1:])
 	case "workflows":
@@ -234,6 +236,15 @@ may be left out: it is then --connection, or the default from ` + "`qube use --c
   workflows delete-run [connection] <run-id>                only once the run has ended
   api METHOD PATH [--data JSON|@file|-]                     any v2 call, as the current app (PATH /connections
                                                             means /api/v2/connections)
+
+Webhooks on this machine (sandbox apps; as the default app, or --app):
+  listen --forward-to URL [--write-env FILE] [--forget]
+                                   a webhook_url for this machine, the same every time: each delivery to it is
+                                   POSTed to URL (plus any path the webhook_url adds) with the same body and
+                                   headers, and the answer goes back to QuBe Sync; one line per delivery
+                                   (--json: one object per line); --write-env .env stores the URL as
+                                   QUBE_WEBHOOK_URL; --forget deletes this machine's URL (alone: only that);
+                                   Ctrl-C stops
 
 Other:
   completion bash|zsh|fish         shell completion script (eval or save it)
