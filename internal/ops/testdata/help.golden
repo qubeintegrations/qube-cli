@@ -117,7 +117,7 @@ Flags:
                                    qbXML requestID and echoed in the raw answer (response_xml);
                                    optional, since the answer's webhook already carries the
                                    request's id.
-  --iterator                       Page through every result: QuBe Sync asks QuickBooks for each
+  --iterator                       Page through every match: QuBe Sync asks QuickBooks for each
                                    page in turn and sends each to your webhook_url as it
                                    arrives, all with the same id.
   --include STRING...              One of: AccountNumber, AdditionalContactRef,
@@ -169,14 +169,12 @@ Update data ext.  PUT /api/v2/connections/{connection_id}/data-exts
 
 qbXML: DataExtModRq, from qbXML 2.0. The data_ext_mod wrapper from qbXML is also accepted.
 
-This request can only be invoked if a data extension definition has already been added to the
-target object (for example, the customer John Henry) by a DataExtDefAdd or by the user
-specifying a custom field value for that object via the QuickBooks UI.
-
-If you want to clear the data extension value (to make the custom field or private extension
-blank), you must use DataExtDel. The DataExtMod request can’t be used to clear the field.
-
-Both DataExtAdd and DataExtMod cause a Modify event to be generated for the parent object. …
+Sets the value of a custom field (owner_id 0) or private extension (your GUID) on a list object
+or transaction. The object needn't have a value yet: on QuickBooks Enterprise 24.0 (2026-10-10)
+this set a custom field's first value on a new sales order, so you don't need data_ext.create
+first. The definition must reach the object's type: a custom field defined on Customer also
+reaches credit memos, estimates, invoices, sales orders and sales receipts. It can't clear a
+value; delete the value instead.
 (--help --json has the whole description.)
 
 Flags:
@@ -380,8 +378,8 @@ Adds an invoice: what a customer owes for a sale they didn't pay in full when it
 sale paid in full is a sales receipt). customer_ref is required. Each line in invoice_line_add
 names an item_ref and two of quantity, rate and amount; QuickBooks works out the third. An
 inventory item on an invoice lowers stock and posts its cost of goods sold. To invoice a sales
-order, link it with link_to_txn_id. The create_invoice workflow template adds the customer and
-any missing items first.
+order, link it with link_to_txn_id. The add_transaction workflow template finds the customer and
+items first and creates any that are missing.
 (--help --json has the whole description.)
 
 Flags:
@@ -635,13 +633,12 @@ Record payment.  POST /api/v2/connections/{connection_id}/payments
 qbXML: ReceivePaymentAddRq, from qbXML 1.1. The receive_payment_add wrapper from qbXML is also
 accepted.
 
-Records a customer's payment. Set customer_ref, total_amount and either is_auto_apply
-(QuickBooks applies it to an invoice of exactly that amount, or else to the oldest first) or
-applied_to_txn_add, naming each invoice by txn_id with the amount paid on it. The amounts
-applied can't add up to more than total_amount. A line can also apply a credit memo (set_credit)
-or a discount. Without deposit_to_account_ref, the money goes to Undeposited Funds.
-
-1. To record a customer’s payment against an invoice for one or more jobs,
+Records a customer's payment. Set customer_ref, total_amount and either is_auto_apply (to an
+invoice of that exact amount, else the oldest) or applied_to_txn_add: each invoice's txn_id and
+the amount paid, at most what it owes (more fails with 3210 invalid_value) and at most
+total_amount in all. A line can also apply a credit memo (set_credit); a total_amount of 0 that
+only does that creates no payment and answers just each invoice's txn_id and txn_type. A payment
+gets no number unless you send ref_number. …
 (--help --json has the whole description.)
 
 Flags:

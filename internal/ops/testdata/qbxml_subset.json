@@ -1,4 +1,21 @@
 {
+  "components": {
+    "parameters": {
+      "IdempotencyKey": {
+        "description": "Makes a retry safe when you never got the answer to a call: a timeout, a dropped connection, a worker that crashed. Send a new key (a UUID, say) with each request you mean to make once, and the same key when you send that request again. A repeat with the key and the same method, path, query and body answers `201` with what the first call created, as it is now, marked `Idempotent-Replayed: true`, and queues nothing. The same key with a different request is a `422`. A key belongs to your app (sandbox and production apps never share one), lasts as long as what it created, and is 1 to 255 printable ASCII characters.",
+        "example": "9b2f6c1e-0d4a-4f7e-8a7b-2a1c3d4e5f60",
+        "in": "header",
+        "name": "Idempotency-Key",
+        "required": false,
+        "schema": {
+          "maxLength": 255,
+          "minLength": 1,
+          "pattern": "^[\\x20-\\x7E]+$",
+          "type": "string"
+        }
+      }
+    }
+  },
   "info": {
     "description": "Some operations of the qube app's priv/openapi/generated/qbxml_operations.json, cut down to what the CLI reads. Regenerate it with `go test ./internal/ops -update`; do not edit it.",
     "title": "QuBe Sync API (v2)",
@@ -737,6 +754,9 @@
               "maxLength": 2048,
               "type": "string"
             }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
         "summary": "List aging reports",
@@ -773,7 +793,7 @@
             }
           },
           {
-            "description": "Page through every result: QuBe Sync asks QuickBooks for each page in turn and sends each to your `webhook_url` as it arrives, all with the same `id`. `max_returned` is the page size (100 if you leave it out). It pages a filtered query only: with `full_name` or `list_id` every match comes back in one answer, so leave `iterator` out.",
+            "description": "Page through every match: QuBe Sync asks QuickBooks for each page in turn and sends each to your `webhook_url` as it arrives, all with the same `id`. On by default, with pages of 100 records; send `iterator=true` with `max_returned` for another size. Off when you send `iterator=false` (every match in one answer) or `max_returned` alone (at most that many, in one answer). It pages a filtered query only: with `full_name` or `list_id` every match comes back in one answer, so leave `iterator` out.",
             "in": "query",
             "name": "iterator",
             "required": false,
@@ -806,7 +826,7 @@
             }
           },
           {
-            "description": "Limits the number of objects that a query returns. (To get a count of how many objects could possibly be returned, use the metaData query attribute.) If you include a `max_returned` value, it must be at least 1.\n\nChoose at most one of: `list_id`, or `full_name`, or the set (`active_status`, `from_modified_date`, `max_returned`, `name_contains`, `name_ends_with`, `name_range`, `name_starts_with`, `to_modified_date`). Members of a set combine with each other, not with the other choices.",
+            "description": "Limits the number of objects that a query returns. (To get a count of how many objects could possibly be returned, use the metaData query attribute.) If you include a `max_returned` value, it must be at least 1.\n\nThe page size, with `iterator=true`. Sent without `iterator`, or with `iterator=false`, it's a cap instead: at most this many records come back, in one answer, and QuickBooks doesn't say whether more matched.\n\nChoose at most one of: `list_id`, or `full_name`, or the set (`active_status`, `from_modified_date`, `max_returned`, `name_contains`, `name_ends_with`, `name_range`, `name_starts_with`, `to_modified_date`). Members of a set combine with each other, not with the other choices.",
             "in": "query",
             "name": "max_returned",
             "required": false,
@@ -991,6 +1011,9 @@
               "maxLength": 2048,
               "type": "string"
             }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
         "summary": "List customers",
@@ -1004,7 +1027,7 @@
         "callbacks": {
           "answered": {}
         },
-        "description": "qbXML: `DataExtModRq`, from qbXML 2.0. The `data_ext_mod` wrapper from qbXML is also accepted.\n\nThis request can only be invoked if a data extension definition has already been added to the target object (for example, the customer John Henry) by a DataExtDefAdd or by the user specifying a custom field value for that object via the QuickBooks UI.\n\nIf you want to clear the data extension value (to make the custom field or private extension blank), you must use DataExtDel. The DataExtMod request can’t be used to clear the field.\n\nBoth DataExtAdd and DataExtMod cause a Modify event to be generated for the parent object. For example invoking one of these on a Customer causes a Customer Modify event. The Time Modified value for that parent object is also updated.\n\nNotice that the Mod operation doesn’t support macros like DataExtAdd does.\n\nIntuit's reference: [DataExtMod](https://developer.intuit.com/app/developer/qbdesktop/docs/api-reference/qbdesktop/dataextmod).",
+        "description": "qbXML: `DataExtModRq`, from qbXML 2.0. The `data_ext_mod` wrapper from qbXML is also accepted.\n\nSets the value of a custom field (`owner_id` 0) or private extension (your GUID) on a list object or transaction. The object needn't have a value yet: on QuickBooks Enterprise 24.0 (2026-10-10) this set a custom field's first value on a new sales order, so you don't need data_ext.create first. The definition must reach the object's type: a custom field defined on Customer also reaches credit memos, estimates, invoices, sales orders and sales receipts. It can't clear a value; delete the value instead.\n\nIf you want to clear the data extension value (to make the custom field or private extension blank), you must use DataExtDel. The DataExtMod request can’t be used to clear the field.\n\nBoth DataExtAdd and DataExtMod cause a Modify event to be generated for the parent object. For example invoking one of these on a Customer causes a Customer Modify event. The Time Modified value for that parent object is also updated.\n\nNotice that the Mod operation doesn’t support macros like DataExtAdd does.\n\nIntuit's reference: [DataExtMod](https://developer.intuit.com/app/developer/qbdesktop/docs/api-reference/qbdesktop/dataextmod).",
         "operationId": "updateDataExt",
         "parameters": [
           {
@@ -1027,6 +1050,9 @@
               "maxLength": 2048,
               "type": "string"
             }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
         "requestBody": {
@@ -1210,6 +1236,9 @@
               "maxLength": 2048,
               "type": "string"
             }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
         "requestBody": {
@@ -2008,7 +2037,7 @@
         "callbacks": {
           "answered": {}
         },
-        "description": "qbXML: `InvoiceAddRq`. The `invoice_add` wrapper from qbXML is also accepted.\n\nAdds an invoice: what a customer owes for a sale they didn't pay in full when it was made (a sale paid in full is a sales receipt). `customer_ref` is required. Each line in `invoice_line_add` names an `item_ref` and two of `quantity`, `rate` and `amount`; QuickBooks works out the third. An inventory item on an invoice lowers stock and posts its cost of goods sold. To invoice a sales order, link it with `link_to_txn_id`. The `create_invoice` workflow template adds the customer and any missing items first.\n\nIn QuickBooks, invoices and estimates use similar fields, and an estimate can be converted into an invoice after the customer accepts the estimate. However, in the SDK, there is currently no ability to create an invoice directly from an estimate (you can’t link an invoice to an estimate).\n\nIf you Add an invoice that has an inventory item on it, QB will automatically calculate COGS and post it to the COGS account. (The inventory item will need to be setup to post to the COGS account and must have a unit cost in it.) However, notice that such an InvoiceAdd has sales prices, not cost, so the Add isn’t impacting the cost of the item. The cost of the item is only affected by purchases (bills and item receipts) sales and inventory adjustments.\n\nSee also: [Inventory costing](https://docs.qubesync.com/quickbooks-notes#inventory-costing), [Line item taxes](https://docs.qubesync.com/quickbooks-notes#line-item-taxes).\n\nIntuit's reference: [InvoiceAdd](https://developer.intuit.com/app/developer/qbdesktop/docs/api-reference/qbdesktop/invoiceadd).",
+        "description": "qbXML: `InvoiceAddRq`. The `invoice_add` wrapper from qbXML is also accepted.\n\nAdds an invoice: what a customer owes for a sale they didn't pay in full when it was made (a sale paid in full is a sales receipt). `customer_ref` is required. Each line in `invoice_line_add` names an `item_ref` and two of `quantity`, `rate` and `amount`; QuickBooks works out the third. An inventory item on an invoice lowers stock and posts its cost of goods sold. To invoice a sales order, link it with `link_to_txn_id`. The `add_transaction` workflow template finds the customer and items first and creates any that are missing.\n\nIn QuickBooks, invoices and estimates use similar fields, and an estimate can be converted into an invoice after the customer accepts the estimate. However, in the SDK, there is currently no ability to create an invoice directly from an estimate (you can’t link an invoice to an estimate).\n\nIf you Add an invoice that has an inventory item on it, QB will automatically calculate COGS and post it to the COGS account. (The inventory item will need to be setup to post to the COGS account and must have a unit cost in it.) However, notice that such an InvoiceAdd has sales prices, not cost, so the Add isn’t impacting the cost of the item. The cost of the item is only affected by purchases (bills and item receipts) sales and inventory adjustments.\n\nSee also: [Inventory costing](https://docs.qubesync.com/quickbooks-notes#inventory-costing), [Line item taxes](https://docs.qubesync.com/quickbooks-notes#line-item-taxes).\n\nIntuit's reference: [InvoiceAdd](https://developer.intuit.com/app/developer/qbdesktop/docs/api-reference/qbdesktop/invoiceadd).",
         "operationId": "createInvoice",
         "parameters": [
           {
@@ -2031,6 +2060,9 @@
               "maxLength": 2048,
               "type": "string"
             }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
         "requestBody": {
@@ -2941,6 +2973,9 @@
               "maxLength": 2048,
               "type": "string"
             }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
         "requestBody": {
@@ -3289,7 +3324,7 @@
         "callbacks": {
           "answered": {}
         },
-        "description": "qbXML: `ReceivePaymentAddRq`, from qbXML 1.1. The `receive_payment_add` wrapper from qbXML is also accepted.\n\nRecords a customer's payment. Set `customer_ref`, `total_amount` and either `is_auto_apply` (QuickBooks applies it to an invoice of exactly that amount, or else to the oldest first) or `applied_to_txn_add`, naming each invoice by `txn_id` with the amount paid on it. The amounts applied can't add up to more than `total_amount`. A line can also apply a credit memo (`set_credit`) or a discount. Without `deposit_to_account_ref`, the money goes to Undeposited Funds.\n\n1. To record a customer’s payment against an invoice for one or more jobs,\n2. To set a discount (for early payment, for example),\n3. To set a credit (from previously returned merchandise, for example).\n\nIf full payment is received at the time of sale, it is recorded using a sales receipt transaction, not a receive payments transaction.\n\nNotice that access to sensitive data permissions aren’t required to use this request. However, if the application doesn’t have access to sensitive data permission, then the response returned won’t contain certain sensitive data. For example, even if credit card data is supplied in the ReceivePaymentAdd request via the `credit_card_txn_info` aggregate, the response won’t contain the corresponding aggregate.\n\nThis request can be used to record QBMS credit card transaction data, via the `credit_card_txn_info` aggregate. You can record charges and also authorizations. (You can later respond to a QBMS capture of authorized charges by doing a ReceivePaymentMod and changing the `credit_card_txn_type` to “Charge”.)\n\nNotice that the reconciliation data fields (`recon_batch_id`, `payment_grouping_code`, `payment_status`, `txn_authorization_time`, `txn_authorization_stamp`, `client_trans_id`) are optional ONLY if the `credit_card_txn_type` is “Authorization”. If the type is “Charge”, then those reconciliation fields must be supplied or you will get a runtime error.\n\nIntuit's reference, linked below, has the rest of these notes.\n\nIntuit's reference: [ReceivePaymentAdd](https://developer.intuit.com/app/developer/qbdesktop/docs/api-reference/qbdesktop/receivepaymentadd).",
+        "description": "qbXML: `ReceivePaymentAddRq`, from qbXML 1.1. The `receive_payment_add` wrapper from qbXML is also accepted.\n\nRecords a customer's payment. Set `customer_ref`, `total_amount` and either `is_auto_apply` (to an invoice of that exact amount, else the oldest) or `applied_to_txn_add`: each invoice's `txn_id` and the amount paid, at most what it owes (more fails with 3210 `invalid_value`) and at most `total_amount` in all. A line can also apply a credit memo (`set_credit`); a `total_amount` of 0 that only does that creates no payment and answers just each invoice's txn_id and txn_type. A payment gets no number unless you send `ref_number`. Without `deposit_to_account_ref` it goes to Undeposited Funds.\n\n1. To record a customer’s payment against an invoice for one or more jobs,\n2. To set a discount (for early payment, for example),\n3. To set a credit (from previously returned merchandise, for example).\n\nIf full payment is received at the time of sale, it is recorded using a sales receipt transaction, not a receive payments transaction.\n\nNotice that access to sensitive data permissions aren’t required to use this request. However, if the application doesn’t have access to sensitive data permission, then the response returned won’t contain certain sensitive data. For example, even if credit card data is supplied in the ReceivePaymentAdd request via the `credit_card_txn_info` aggregate, the response won’t contain the corresponding aggregate.\n\nThis request can be used to record QBMS credit card transaction data, via the `credit_card_txn_info` aggregate. You can record charges and also authorizations. (You can later respond to a QBMS capture of authorized charges by doing a ReceivePaymentMod and changing the `credit_card_txn_type` to “Charge”.)\n\nIntuit's reference, linked below, has the rest of these notes.\n\nIntuit's reference: [ReceivePaymentAdd](https://developer.intuit.com/app/developer/qbdesktop/docs/api-reference/qbdesktop/receivepaymentadd).",
         "operationId": "recordPayment",
         "parameters": [
           {
@@ -3312,6 +3347,9 @@
               "maxLength": 2048,
               "type": "string"
             }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
         "requestBody": {
@@ -3776,6 +3814,9 @@
               "maxLength": 2048,
               "type": "string"
             }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
           }
         ],
         "requestBody": {
