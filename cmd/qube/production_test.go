@@ -38,6 +38,7 @@ func TestProductionWritesNeedYes(t *testing.T) {
 	}
 	for _, args := range []string{
 		"connections update conn_1 --name Riverbend",
+		"connections name-index conn_1",
 		"api POST /connections/conn_1/customers --data {}",
 		"qb customers create conn_1 --name Northwind",
 	} {

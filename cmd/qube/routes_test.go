@@ -85,7 +85,8 @@ func qubeRepo() string {
 }
 
 // specRoutes reads an OpenAPI document's operations, leaving out the QuickBooks ones (they
-// carry an `answered` callback: the webhook that says QuickBooks answered).
+// carry an `answered` callback: the webhook that says QuickBooks answered). Other callbacks,
+// such as the opt-in's `name_index` webhook, don't make an operation a QuickBooks one.
 func specRoutes(data []byte) ([]string, error) {
 	var doc struct {
 		Paths map[string]map[string]json.RawMessage `json:"paths"`
@@ -107,12 +108,30 @@ func specRoutes(data []byte) ([]string, error) {
 			if err := json.Unmarshal(raw, &op); err != nil {
 				return nil, err
 			}
-			if len(op.Callbacks) == 0 {
+			if _, quickbooks := op.Callbacks["answered"]; !quickbooks {
 				out = append(out, strings.ToUpper(method)+" "+path)
 			}
 		}
 	}
 	return out, nil
+}
+
+// Only an `answered` callback makes an operation a QuickBooks one: the name index opt-in has a
+// callback of its own (its webhook) and is a route a command calls.
+func TestSpecRoutesLeaveOutOnlyQuickBooksOperations(t *testing.T) {
+	doc := `{"paths": {
+		"/connections/{connection_id}/customers": {"post": {"callbacks": {"answered": {}}}},
+		"/connections/{connection_id}/name-index": {"post": {"callbacks": {"name_index": {}}}},
+		"/connections": {"get": {}, "parameters": []}
+	}}`
+	got, err := specRoutes([]byte(doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sort.Strings(got)
+	if want := "GET /connections,POST /connections/{connection_id}/name-index"; strings.Join(got, ",") != want {
+		t.Fatalf("got %v, want %s", got, want)
+	}
 }
 
 func readGolden(t *testing.T) []string {

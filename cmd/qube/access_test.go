@@ -176,6 +176,7 @@ func TestReadOnlySessionRefusesWrites(t *testing.T) {
 	for _, args := range []string{
 		"connections update conn_1 --name Riverbend",
 		"connections delete conn_1",
+		"connections name-index conn_1",
 		"env --write .env",
 		"qb customers create conn_1 --name Northwind",
 	} {

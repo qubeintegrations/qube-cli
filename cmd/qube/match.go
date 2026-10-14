@@ -118,11 +118,26 @@ func matchHelp() string {
 	return b.String()
 }
 
-// indexBuildingHint follows a 409 `name_index_building`: the index fills as the Web Connector
-// checks in, and a simulated connection can be made to check in now.
+// indexBuildingHint follows a 409 `name_index_building`, or an opt-in that left the index
+// building: the index fills as the Web Connector checks in, a webhook can say when it's in,
+// and a simulated connection can be made to check in now.
 func indexBuildingHint(conn string) string {
-	return "Match again once it's in: `qube connections show " + conn + "` shows the name index's state.\n" +
+	return "Match again once it's in: `qube connections show " + conn + "` shows the name index's state, and\n" +
+		"`qube connections name-index " + conn + " --webhook-url U` has name_index.ready sent to U when it's in.\n" +
 		"On a simulated connection, `qube simulator sync " + conn + "` runs a Web Connector session now."
+}
+
+// nameIndexOptInSummary is what `connections name-index` says: the index is ready, or it is
+// building and who will be told.
+func nameIndexOptInSummary(index map[string]interface{}, conn, webhook string) string {
+	if str(index["state"]) == "ready" {
+		return "The name index is ready" + nameIndexDetails(index) + ": `qube match` answers now, and no webhook is sent."
+	}
+	out := "Building the name index" + nameIndexDetails(index) + ": QuBe Sync reads the lists from QuickBooks as the Web Connector checks in."
+	if webhook != "" {
+		return out + "\nname_index.ready (or name_index.failed) goes to " + webhook + " when it ends."
+	}
+	return out + "\n`qube connections show " + conn + "` shows its state; on a simulated connection, `qube simulator sync " + conn + "` runs a Web Connector session now."
 }
 
 // printMatch shows a match's answer: the tier, then the record or the candidates.
@@ -180,6 +195,11 @@ func score(v interface{}) string {
 // nameIndexSummary is the `name_index` row of `connections show`: its state, and how many
 // records it holds and how current it is when the API says.
 func nameIndexSummary(index map[string]interface{}) string {
+	return str(index["state"]) + nameIndexDetails(index)
+}
+
+// nameIndexDetails is " (N records, as of T)", with what the API gave of the two, or "".
+func nameIndexDetails(index map[string]interface{}) string {
 	var details []string
 	if n, ok := index["records"].(float64); ok {
 		details = append(details, fmt.Sprintf("%d records", int(n)))
@@ -188,7 +208,7 @@ func nameIndexSummary(index map[string]interface{}) string {
 		details = append(details, "as of "+asOf)
 	}
 	if len(details) == 0 {
-		return str(index["state"])
+		return ""
 	}
-	return str(index["state"]) + " (" + strings.Join(details, ", ") + ")"
+	return " (" + strings.Join(details, ", ") + ")"
 }

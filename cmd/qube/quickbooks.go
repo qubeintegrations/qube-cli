@@ -260,8 +260,30 @@ func (c *ctx) connections(args []string) {
 		if links != nil {
 			fmt.Println(str(links["onboarding"]))
 		}
+	case "name-index":
+		fs := flag.NewFlagSet("connections name-index", flag.ExitOnError)
+		webhook := fs.String("webhook-url", "", "where to send name_index.ready (or name_index.failed) when the build ends")
+		parseAnywhere(fs, args)
+		conn, _ := c.connectionAnd(fs.Args(), 0, "qube connections name-index [connection] [--webhook-url U]")
+		cl, app := c.appClient()
+		c.confirmWrite(app, "Build the name index of connection "+conn)
+		var body interface{}
+		if *webhook != "" {
+			body = map[string]string{"webhook_url": *webhook}
+		}
+		var out struct {
+			NameIndex map[string]interface{} `json:"name_index"`
+		}
+		if err := cl.Do("POST", v2path("/connections/{connection_id}/name-index", conn), nil, body, &out); err != nil {
+			fail(err)
+		}
+		if ui.JSON {
+			ui.PrintJSON(out)
+			return
+		}
+		fmt.Println(nameIndexOptInSummary(out.NameIndex, conn, *webhook))
 	default:
-		ui.Usage("usage: qube connections list | create [--simulated] [--name N] [--redirect-url U] [--use] | show [connection] | update [connection] [--name N] [--redirect-url U] | delete <connection> [--yes] | qwc [connection] [--output FILE] | password [connection] [--stdin] | onboarding-url [connection]")
+		ui.Usage("usage: qube connections list | create [--simulated] [--name N] [--redirect-url U] [--use] | show [connection] | update [connection] [--name N] [--redirect-url U] | delete <connection> [--yes] | qwc [connection] [--output FILE] | password [connection] [--stdin] | onboarding-url [connection] | name-index [connection] [--webhook-url U]")
 	}
 }
 

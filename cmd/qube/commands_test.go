@@ -183,6 +183,60 @@ func TestConnectionsPasswordStdin(t *testing.T) {
 	}
 }
 
+// An opt-in sends the webhook_url, and while the index builds says who will be told.
+func TestConnectionsNameIndexSendsTheWebhook(t *testing.T) {
+	var gotRoute string
+	var gotBody map[string]interface{}
+	c := newAPITest(t, map[string]http.HandlerFunc{
+		"/api/v2/connections/conn_1/name-index": func(w http.ResponseWriter, r *http.Request) {
+			gotRoute = r.Method + " " + r.URL.Path
+			_ = json.NewDecoder(r.Body).Decode(&gotBody)
+			w.WriteHeader(http.StatusAccepted)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"name_index": map[string]interface{}{"state": "building", "as_of": nil, "records": 0},
+			})
+		},
+	})
+	setJSON(t, false)
+	out := captureStdout(t, func() {
+		c.connections([]string{"name-index", "conn_1", "--webhook-url", "https://app.example/hooks"})
+	})
+	if gotRoute != "POST /api/v2/connections/conn_1/name-index" || len(gotBody) != 1 || gotBody["webhook_url"] != "https://app.example/hooks" {
+		t.Fatalf("server saw %s %v", gotRoute, gotBody)
+	}
+	if !strings.Contains(out, "Building the name index (0 records)") || !strings.Contains(out, "goes to https://app.example/hooks") {
+		t.Fatalf("output = %q", out)
+	}
+}
+
+// Without --webhook-url there is no body; an index that's ready says so, and --json prints
+// the answer.
+func TestConnectionsNameIndexReady(t *testing.T) {
+	var gotLength int64
+	c := newAPITest(t, map[string]http.HandlerFunc{
+		"/api/v2/connections/conn_1/name-index": func(w http.ResponseWriter, r *http.Request) {
+			gotLength = r.ContentLength
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"name_index": map[string]interface{}{"state": "ready", "as_of": "2026-10-11T14:02:10Z", "records": 1240},
+			})
+		},
+	})
+	setJSON(t, false)
+	out := captureStdout(t, func() { c.connections([]string{"name-index", "conn_1"}) })
+	if gotLength > 0 {
+		t.Fatalf("sent a body of %d bytes", gotLength)
+	}
+	if !strings.HasPrefix(out, "The name index is ready (1240 records, as of 2026-10-11T14:02:10Z): `qube match` answers now") {
+		t.Fatalf("output = %q", out)
+	}
+	setJSON(t, true)
+	out = captureStdout(t, func() { c.connections([]string{"name-index", "conn_1"}) })
+	var printed map[string]map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &printed); err != nil || printed["name_index"]["state"] != "ready" {
+		t.Fatalf("printed %q (%v)", out, err)
+	}
+}
+
 // ---------------------------------------------------------------- requests
 
 func TestRequestsListQuery(t *testing.T) {

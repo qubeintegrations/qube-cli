@@ -22,6 +22,7 @@ GET /workflows/{key}/versions
 GET /workflows/{key}/versions/{number}
 POST /connections
 POST /connections/{connection_id}/matches
+POST /connections/{connection_id}/name-index
 POST /connections/{connection_id}/onboarding-url
 POST /connections/{connection_id}/password
 POST /connections/{connection_id}/queued-requests/{id}/discard

@@ -111,21 +111,22 @@ qube match <connection> item Consulting --exact-only             # exact or none
 A customer, vendor, employee or other name can be matched on more than its name: `--account-number`,
 `--email`, `--phone` and `--postal-code` can make a strong match, and `--city` and `--company-name`
 rank candidates. `qube match -h` lists the kinds and flags, and `--json` prints the API's answer. The
-first match on a connection starts building its index and is refused until it's in (exit 1); a
-simulated connection builds it as `qube simulator sync` runs sessions, and `qube connections show`
-shows its state.
+first match on a connection starts building its index and is refused until it's in (exit 1). To have
+it ready ahead of time, `qube connections name-index <connection> --webhook-url U` starts the build
+and has `name_index.ready` sent to U when it's in. A simulated connection builds it as
+`qube simulator sync` runs sessions, and `qube connections show` shows its state.
 
 ## Production apps
 
 In a production app, every request that changes something asks first, naming the app: every
 `qube qb` operation except `list` (each one writes to the customer's real company file), creating or
-changing a connection (its password and onboarding link too), discarding a request, driving the
-simulator, every workflow change, run, answer or cancellation, and `qube api` with any method but `GET`.
-Reads never ask, and neither do `workflows validate`, `connections qwc` and `match`, which change nothing.
-Removing something (a connection, a workflow, a run) asks in any app. A script answers with `--yes`.
-Without a terminal, or under `--json`, a request that would ask is refused until `--yes` is given, so
-nothing reaches a production company file by accident. Sessions reach production apps only when you
-choose **every app** at `qube login`.
+changing a connection (its password, onboarding link and name index too), discarding a request,
+driving the simulator, every workflow change, run, answer or cancellation, and `qube api` with any
+method but `GET`. Reads never ask, and neither do `workflows validate`, `connections qwc` and
+`match`, which change nothing. Removing something (a connection, a workflow, a run) asks in any
+app. A script answers with `--yes`. Without a terminal, or under `--json`, a request that would ask
+is refused until `--yes` is given, so nothing reaches a production company file by accident.
+Sessions reach production apps only when you choose **every app** at `qube login`.
 
 ## Install
 

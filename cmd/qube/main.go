@@ -197,6 +197,8 @@ may be left out: it is then --connection, or the default from ` + "`qube use --c
   connections qwc [connection] [--output FILE]              the .qwc file the Web Connector needs
   connections password [connection] [--stdin]               a new Web Connector password (never as a flag)
   connections onboarding-url [connection]                   a fresh onboarding link
+  connections name-index [connection] [--webhook-url U]     build the name index before the first match
+                                                            (U is sent name_index.ready when it's in)
   match [connection] <kind> <name> [--parent P] [--exact-only] [--min-score S]
         [--email E] [--phone P] [--account-number N] [--company-name C] [--city C] [--postal-code Z]
                                    the records a name could mean (exact, strong, candidates or none),

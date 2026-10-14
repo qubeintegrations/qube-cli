@@ -10,7 +10,7 @@ import (
 var commandTree = map[string][]string{
 	"":            {"login", "logout", "status", "whoami", "sessions", "apps", "use", "env", "connections", "match", "requests", "simulator", "workflows", "qb", "api", "completion", "version", "help"},
 	"sessions":    {"revoke"},
-	"connections": {"list", "create", "show", "update", "delete", "qwc", "password", "onboarding-url"},
+	"connections": {"list", "create", "show", "update", "delete", "qwc", "password", "onboarding-url", "name-index"},
 	"match":       matchKinds,
 	"requests":    {"list", "show", "pages", "tail", "discard"},
 	"simulator":   {"show", "reset", "sync", "faults"},
