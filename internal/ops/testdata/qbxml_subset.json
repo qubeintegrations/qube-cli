@@ -745,7 +745,7 @@
             }
           },
           {
-            "description": "Where QuBe Sync POSTs the answered request (this same document with `response_json` filled in), signed with `X-QUBE-Signature`. Send one with every request: it is how answers are delivered. Optional only so a script can queue and look up `links.self` by hand. It must be an absolute http or https URL. It may not contain a username or password, and in production it may not point at localhost or a private, loopback or link-local address.",
+            "description": "Where QuBe Sync POSTs the answered request (this same document with `response_json` filled in), signed with `X-QUBE-Signature`. Send one with every request: it is how answers are delivered. Optional only so a script can queue and look up `links.self` by hand. It must be an absolute http or https URL. It may not contain a username or password, and in production it may not point at localhost or a private, loopback or link-local address. A `qube listen` URL must be one of this app's.",
             "in": "query",
             "name": "webhook_url",
             "required": false,
@@ -1002,7 +1002,7 @@
             }
           },
           {
-            "description": "Where QuBe Sync POSTs the answered request (this same document with `response_json` filled in), signed with `X-QUBE-Signature`. Send one with every request: it is how answers are delivered. Optional only so a script can queue and look up `links.self` by hand. It must be an absolute http or https URL. It may not contain a username or password, and in production it may not point at localhost or a private, loopback or link-local address.",
+            "description": "Where QuBe Sync POSTs the answered request (this same document with `response_json` filled in), signed with `X-QUBE-Signature`. Send one with every request: it is how answers are delivered. Optional only so a script can queue and look up `links.self` by hand. It must be an absolute http or https URL. It may not contain a username or password, and in production it may not point at localhost or a private, loopback or link-local address. A `qube listen` URL must be one of this app's.",
             "in": "query",
             "name": "webhook_url",
             "required": false,
@@ -1041,7 +1041,7 @@
             }
           },
           {
-            "description": "Where QuBe Sync POSTs the answered request (this same document with `response_json` filled in), signed with `X-QUBE-Signature`. Send one with every request: it is how answers are delivered. Optional only so a script can queue and look up `links.self` by hand. It must be an absolute http or https URL. It may not contain a username or password, and in production it may not point at localhost or a private, loopback or link-local address.",
+            "description": "Where QuBe Sync POSTs the answered request (this same document with `response_json` filled in), signed with `X-QUBE-Signature`. Send one with every request: it is how answers are delivered. Optional only so a script can queue and look up `links.self` by hand. It must be an absolute http or https URL. It may not contain a username or password, and in production it may not point at localhost or a private, loopback or link-local address. A `qube listen` URL must be one of this app's.",
             "in": "query",
             "name": "webhook_url",
             "required": false,
@@ -1227,7 +1227,7 @@
             }
           },
           {
-            "description": "Where QuBe Sync POSTs the answered request (this same document with `response_json` filled in), signed with `X-QUBE-Signature`. Send one with every request: it is how answers are delivered. Optional only so a script can queue and look up `links.self` by hand. It must be an absolute http or https URL. It may not contain a username or password, and in production it may not point at localhost or a private, loopback or link-local address.",
+            "description": "Where QuBe Sync POSTs the answered request (this same document with `response_json` filled in), signed with `X-QUBE-Signature`. Send one with every request: it is how answers are delivered. Optional only so a script can queue and look up `links.self` by hand. It must be an absolute http or https URL. It may not contain a username or password, and in production it may not point at localhost or a private, loopback or link-local address. A `qube listen` URL must be one of this app's.",
             "in": "query",
             "name": "webhook_url",
             "required": false,
@@ -2051,7 +2051,7 @@
             }
           },
           {
-            "description": "Where QuBe Sync POSTs the answered request (this same document with `response_json` filled in), signed with `X-QUBE-Signature`. Send one with every request: it is how answers are delivered. Optional only so a script can queue and look up `links.self` by hand. It must be an absolute http or https URL. It may not contain a username or password, and in production it may not point at localhost or a private, loopback or link-local address.",
+            "description": "Where QuBe Sync POSTs the answered request (this same document with `response_json` filled in), signed with `X-QUBE-Signature`. Send one with every request: it is how answers are delivered. Optional only so a script can queue and look up `links.self` by hand. It must be an absolute http or https URL. It may not contain a username or password, and in production it may not point at localhost or a private, loopback or link-local address. A `qube listen` URL must be one of this app's.",
             "in": "query",
             "name": "webhook_url",
             "required": false,
@@ -2964,7 +2964,7 @@
             }
           },
           {
-            "description": "Where QuBe Sync POSTs the answered request (this same document with `response_json` filled in), signed with `X-QUBE-Signature`. Send one with every request: it is how answers are delivered. Optional only so a script can queue and look up `links.self` by hand. It must be an absolute http or https URL. It may not contain a username or password, and in production it may not point at localhost or a private, loopback or link-local address.",
+            "description": "Where QuBe Sync POSTs the answered request (this same document with `response_json` filled in), signed with `X-QUBE-Signature`. Send one with every request: it is how answers are delivered. Optional only so a script can queue and look up `links.self` by hand. It must be an absolute http or https URL. It may not contain a username or password, and in production it may not point at localhost or a private, loopback or link-local address. A `qube listen` URL must be one of this app's.",
             "in": "query",
             "name": "webhook_url",
             "required": false,
@@ -3338,7 +3338,7 @@
             }
           },
           {
-            "description": "Where QuBe Sync POSTs the answered request (this same document with `response_json` filled in), signed with `X-QUBE-Signature`. Send one with every request: it is how answers are delivered. Optional only so a script can queue and look up `links.self` by hand. It must be an absolute http or https URL. It may not contain a username or password, and in production it may not point at localhost or a private, loopback or link-local address.",
+            "description": "Where QuBe Sync POSTs the answered request (this same document with `response_json` filled in), signed with `X-QUBE-Signature`. Send one with every request: it is how answers are delivered. Optional only so a script can queue and look up `links.self` by hand. It must be an absolute http or https URL. It may not contain a username or password, and in production it may not point at localhost or a private, loopback or link-local address. A `qube listen` URL must be one of this app's.",
             "in": "query",
             "name": "webhook_url",
             "required": false,
@@ -3805,7 +3805,7 @@
             }
           },
           {
-            "description": "Where QuBe Sync POSTs the answered request (this same document with `response_json` filled in), signed with `X-QUBE-Signature`. Send one with every request: it is how answers are delivered. Optional only so a script can queue and look up `links.self` by hand. It must be an absolute http or https URL. It may not contain a username or password, and in production it may not point at localhost or a private, loopback or link-local address.",
+            "description": "Where QuBe Sync POSTs the answered request (this same document with `response_json` filled in), signed with `X-QUBE-Signature`. Send one with every request: it is how answers are delivered. Optional only so a script can queue and look up `links.self` by hand. It must be an absolute http or https URL. It may not contain a username or password, and in production it may not point at localhost or a private, loopback or link-local address. A `qube listen` URL must be one of this app's.",
             "in": "query",
             "name": "webhook_url",
             "required": false,
