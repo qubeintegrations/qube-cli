@@ -44,7 +44,7 @@ func (c *ctx) login(args []string) {
 	}
 	cl := api.New(c.host, c.timeout)
 	cl.Ctx = c.bg
-	start, err := cl.StartDevice(*name, access)
+	start, err := cl.StartDevice(api.DeviceRequest{ClientName: *name, Access: access})
 	if err != nil {
 		fail(fmt.Errorf("starting login at %s: %w", c.host, err))
 	}

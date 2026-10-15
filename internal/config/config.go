@@ -1,6 +1,7 @@
 // Package config holds what `qube login` stores: one session per host, the host to use by
 // default, and per session a default app and a default connection for each app. Tokens live in the user's config directory with
-// 0600 permissions -- never in the repo, never printed.
+// 0600 permissions -- never in the repo, never printed. A QuBe Sync staff session also keeps the
+// act-as grant it holds, or waits for, under its host's entry.
 package config
 
 import (
@@ -26,6 +27,19 @@ type Session struct {
 	DefaultAppName string `json:"default_app_name,omitempty"`
 	// DefaultConnections is the connection `qube use --connection` chose, by app id.
 	DefaultConnections map[string]Connection `json:"default_connections,omitempty"`
+
+	// QuBe Sync staff (`qube login --admin`, `qube login --agent NAME`): who holds the session
+	// and the staff permissions it holds. Empty for an ordinary session.
+	Actor       string   `json:"actor,omitempty"` // human or agent; empty is human
+	AgentName   string   `json:"agent_name,omitempty"`
+	Permissions []string `json:"permissions,omitempty"`
+
+	// ActingAs is the act-as grant this session holds (`qube act-as`): while it is set, every
+	// command but `qube admin` and `qube act-as` uses its token, in the customer's organization.
+	ActingAs *ActAs `json:"acting_as,omitempty"`
+	// PendingActAs is a grant waiting for approval in the browser (`qube act-as --no-wait`),
+	// collected by `qube act-as --resume`, or by the next command once it is approved.
+	PendingActAs *PendingActAs `json:"pending_act_as,omitempty"`
 }
 
 // Connection names a connection: its id, and its name for messages.
@@ -33,6 +47,70 @@ type Connection struct {
 	ID   string `json:"id"`
 	Name string `json:"name,omitempty"`
 }
+
+// App is an app a grant reaches, as the server listed it.
+type App struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Sandbox bool   `json:"sandbox"`
+}
+
+// ActAs is an act-as grant: a short-lived token for a customer's organization, made for this
+// session's person with a reason. It keeps its own default app and connections, so `qube use`
+// while acting never changes the session's own.
+type ActAs struct {
+	Token              string                `json:"token"`
+	GrantID            string                `json:"grant_id,omitempty"`
+	OrganizationID     string                `json:"organization_id"`
+	Organization       string                `json:"organization"`
+	Scope              string                `json:"scope"`  // sandbox or all
+	Access             string                `json:"access"` // read_only, configure or read_write
+	Reason             string                `json:"reason,omitempty"`
+	WriteBudget        *int                  `json:"write_budget,omitempty"` // as granted; the server counts it down
+	ExpiresAt          string                `json:"expires_at"`
+	ApprovedBy         string                `json:"approved_by,omitempty"`
+	Apps               []App                 `json:"apps,omitempty"`
+	DefaultApp         string                `json:"default_app,omitempty"`
+	DefaultAppName     string                `json:"default_app_name,omitempty"`
+	DefaultConnections map[string]Connection `json:"default_connections,omitempty"`
+}
+
+// Expired reports whether the grant's expiry has passed (an unparsable one counts as not
+// expired; the server has the last word).
+func (a *ActAs) Expired() bool { return pastRFC3339(a.ExpiresAt) }
+
+// ReadOnly reports whether the grant can only look.
+func (a *ActAs) ReadOnly() bool { return a.Access == "read_only" }
+
+// PendingActAs is a grant asked for and not yet approved: the device code that redeems it
+// once a person approves it in the browser (kept only until then), and what was asked.
+type PendingActAs struct {
+	DeviceCode              string `json:"device_code"`
+	UserCode                string `json:"user_code"`
+	VerificationURIComplete string `json:"verification_uri_complete"`
+	ExpiresAt               string `json:"expires_at"`
+	Interval                int    `json:"interval,omitempty"`
+	OrganizationID          string `json:"organization_id"`
+	Organization            string `json:"organization,omitempty"`
+	Scope                   string `json:"scope"`
+	Access                  string `json:"access,omitempty"`
+	Minutes                 int    `json:"minutes,omitempty"`
+	Reason                  string `json:"reason,omitempty"`
+}
+
+// Expired reports whether the approval code has expired.
+func (p *PendingActAs) Expired() bool { return pastRFC3339(p.ExpiresAt) }
+
+func pastRFC3339(s string) bool {
+	t, err := time.Parse(time.RFC3339, s)
+	return err == nil && time.Now().After(t)
+}
+
+// Staff reports whether the session holds staff permissions.
+func (s Session) Staff() bool { return len(s.Permissions) > 0 }
+
+// Agent reports whether an AI agent holds the session.
+func (s Session) Agent() bool { return s.Actor == "agent" }
 
 // ReadOnly reports whether the session was approved to look but not change anything.
 func (s Session) ReadOnly() bool { return s.Access == "read_only" }
@@ -47,10 +125,7 @@ func (s Session) AccessLabel() string {
 
 // Expired reports whether the server would refuse this session's token (best effort: an
 // unparsable expiry counts as not expired and the server has the last word).
-func (s Session) Expired() bool {
-	t, err := time.Parse(time.RFC3339, s.ExpiresAt)
-	return err == nil && time.Now().After(t)
-}
+func (s Session) Expired() bool { return pastRFC3339(s.ExpiresAt) }
 
 type File struct {
 	Version     int                `json:"version"`

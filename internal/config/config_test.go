@@ -182,3 +182,53 @@ func TestDeviceIDReplacesAnUnreadableFile(t *testing.T) {
 		t.Fatalf("file holds %q", data)
 	}
 }
+
+// The act-as overlay lives under the host's session, survives a round trip, and an expired
+// grant or approval code reads as expired.
+func TestActAsOverlayRoundTrip(t *testing.T) {
+	p := withConfig(t)
+	budget := 25
+	future := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	past := time.Now().Add(-time.Minute).UTC().Format(time.RFC3339)
+	f := &File{Version: 1, Sessions: map[string]Session{
+		"https://qubesync.com": {
+			Token: "qct_staff", Actor: "agent", AgentName: "Claude Code", Permissions: []string{"admin.read", "org.act"},
+			ActingAs: &ActAs{Token: "qct_grant", OrganizationID: "org-1", Organization: "Acme Corp", Scope: "sandbox", Access: "configure",
+				WriteBudget: &budget, ExpiresAt: future, Apps: []App{{ID: "app-1", Name: "Acme Sandbox", Sandbox: true}},
+				DefaultConnections: map[string]Connection{"app-1": {ID: "conn-1"}}},
+			PendingActAs: &PendingActAs{DeviceCode: "qcd_x", UserCode: "ABCD-EFGH", ExpiresAt: past, OrganizationID: "org-2"},
+		},
+	}}
+	if err := f.Save(); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(p)
+	for _, key := range []string{`"acting_as"`, `"pending_act_as"`, `"agent_name": "Claude Code"`, `"permissions"`} {
+		if !strings.Contains(string(raw), key) {
+			t.Errorf("config lacks %s:\n%s", key, raw)
+		}
+	}
+	g, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := g.Sessions["https://qubesync.com"]
+	if !s.Agent() || !s.Staff() || s.ActingAs == nil || s.ActingAs.Token != "qct_grant" || *s.ActingAs.WriteBudget != 25 ||
+		s.ActingAs.Apps[0].Name != "Acme Sandbox" || s.ActingAs.DefaultConnections["app-1"].ID != "conn-1" {
+		t.Fatalf("round trip: %+v %+v", s, s.ActingAs)
+	}
+	if s.ActingAs.Expired() || !s.PendingActAs.Expired() || s.ActingAs.ReadOnly() {
+		t.Fatal("expiry or access read wrong")
+	}
+	// an ordinary session writes none of the staff keys
+	plain := &File{Version: 1, Sessions: map[string]Session{"https://qubesync.com": {Token: "qct_x"}}}
+	if err := plain.Save(); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ = os.ReadFile(p)
+	for _, key := range []string{"acting_as", "pending_act_as", "actor", "permissions"} {
+		if strings.Contains(string(raw), key) {
+			t.Errorf("an ordinary session's config has %s:\n%s", key, raw)
+		}
+	}
+}
