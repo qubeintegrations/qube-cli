@@ -322,12 +322,14 @@ func newAPITestApp(t *testing.T, sandbox bool, handlers map[string]http.HandlerF
 	var srv *httptest.Server
 	app := map[string]interface{}{"id": "app1", "name": "App", "sandbox": sandbox}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/cli/apps", func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"data":  []map[string]interface{}{app},
-			"scope": "all",
+	if _, own := handlers["/api/cli/apps"]; !own {
+		mux.HandleFunc("/api/cli/apps", func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"data":  []map[string]interface{}{app},
+				"scope": "all",
+			})
 		})
-	})
+	}
 	credentials := func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"data": map[string]interface{}{

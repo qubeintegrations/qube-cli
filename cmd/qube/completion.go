@@ -8,7 +8,7 @@ import (
 
 // The command tree the completion scripts describe. Keep in step with main() and usage().
 var commandTree = map[string][]string{
-	"":            {"login", "logout", "status", "whoami", "sessions", "apps", "use", "env", "connections", "match", "requests", "listen", "simulator", "workflows", "qb", "api", "admin", "completion", "version", "help"},
+	"":            {"login", "logout", "status", "whoami", "sessions", "apps", "use", "env", "connections", "match", "requests", "listen", "simulator", "workflows", "qb", "api", "admin", "act-as", "completion", "version", "help"},
 	"login":       {"--name", "--read-only", "--agent", "--admin"},
 	"sessions":    {"revoke"},
 	"connections": {"list", "create", "show", "update", "delete", "qwc", "password", "onboarding-url", "name-index"},
@@ -28,6 +28,7 @@ var commandTree = map[string][]string{
 		"--page", "--page-size", "--type", "--stalled", "--state", "--webhook-state", "--limit", "--after", "--before",
 		"--xml", "--events", "--io", "--events-after", "--queue", "--worker", "--args", "--status", "--subject", "--days",
 		"--actor", "--token", "--action", "--all", "--staff"},
+	"act-as": {"--reason", "--for", "--production", "--access", "--write-budget", "--wait", "--no-wait", "--resume", "--end", "--status"},
 }
 
 var globalFlags = []string{"--json", "--host", "--app", "--timeout", "--yes", "--connection"}

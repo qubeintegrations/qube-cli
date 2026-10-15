@@ -13,12 +13,43 @@ import (
 	"github.com/qubeintegrations/qube-cli/internal/ui"
 )
 
+// appsList asks the server which apps this session may act on. While acting as an
+// organization the grant asks, so they are the grant's apps, and they are kept with it.
 func (c *ctx) appsList() ([]api.App, string) {
 	apps, scope, err := c.cli().Apps()
 	if err != nil {
 		fail(err)
 	}
+	if a := c.acting(); a != nil {
+		a.Apps = configApps(apps)
+		if err := c.cfg.Save(); err != nil {
+			ui.Warn("saving config: %v", err)
+		}
+	}
 	return apps, scope
+}
+
+// defaultApp is the app `qube use` chose: the grant's while acting, else the session's.
+func (c *ctx) defaultApp() (id, name string) {
+	if a := c.acting(); a != nil {
+		return a.DefaultApp, a.DefaultAppName
+	}
+	s := c.cfg.Sessions[c.host]
+	return s.DefaultApp, s.DefaultAppName
+}
+
+// setDefaultApp saves the app `qube use` chose, on the grant while acting.
+func (c *ctx) setDefaultApp(app *api.App) {
+	if a := c.acting(); a != nil {
+		a.DefaultApp, a.DefaultAppName = app.ID, app.Name
+	} else {
+		s := c.cfg.Sessions[c.host]
+		s.DefaultApp, s.DefaultAppName = app.ID, app.Name
+		c.cfg.Sessions[c.host] = s
+	}
+	if err := c.cfg.Save(); err != nil {
+		fail(err)
+	}
 }
 
 func (c *ctx) apps() {
@@ -27,7 +58,7 @@ func (c *ctx) apps() {
 		ui.PrintJSON(map[string]interface{}{"scope": scope, "apps": apps})
 		return
 	}
-	def := c.cfg.Sessions[c.host].DefaultApp
+	def, _ := c.defaultApp()
 	var rows [][]string
 	for _, a := range apps {
 		kind := "production"
@@ -44,8 +75,14 @@ func (c *ctx) apps() {
 	if scope == "sandbox" {
 		empty = "No sandbox apps (this session cannot see production apps): create a sandbox app in the dashboard."
 	}
+	if a := c.acting(); a != nil {
+		empty = fmt.Sprintf("%s has no apps this grant reaches.", a.Organization)
+	}
 	ui.Table(os.Stdout, []string{"", "ID", "NAME", "KIND"}, rows, empty)
-	if scope == "sandbox" && len(rows) > 0 {
+	switch {
+	case c.acting() != nil && scope == "sandbox" && len(rows) > 0:
+		ui.Info("(%s's apps this grant reaches: sandbox apps only)", c.acting().Organization)
+	case scope == "sandbox" && len(rows) > 0:
 		ui.Info("(sandbox-scoped session: production apps are not listed)")
 	}
 }
@@ -75,32 +112,38 @@ func (c *ctx) use(args []string) {
 	if err != nil {
 		fail(err)
 	}
-	s := c.cfg.Sessions[c.host]
-	s.DefaultApp, s.DefaultAppName = app.ID, app.Name
-	c.cfg.Sessions[c.host] = s
-	if err := c.cfg.Save(); err != nil {
-		fail(err)
+	c.setDefaultApp(app)
+	if a := c.acting(); a != nil {
+		ui.Info("Default app while acting as %s: %s", a.Organization, app.Name)
+	} else {
+		ui.Info("Default app for %s: %s", c.host, app.Name)
 	}
-	ui.Info("Default app for %s: %s", c.host, app.Name)
 	c.appCache, c.app = app, app.ID
 	if c.connection != "" {
 		c.useConnection(c.connection)
-	} else if cn, ok := s.DefaultConnections[app.ID]; ok {
+	} else if cn, ok := c.defaultConnections()[app.ID]; ok {
 		ui.Info("Default connection: %s", connectionLabel(cn))
 	}
 }
 
 // the app to act as: --app, else the default from `qube use`, else the only app. Looked up
-// once per command.
+// once per command. While acting as an organization it is one of the grant's apps, from the
+// list kept with the grant (asked again when it doesn't have the app).
 func (c *ctx) currentApp() *api.App {
 	if c.appCache != nil {
 		return c.appCache
 	}
-	apps, _ := c.appsList()
 	ref := c.app
 	if ref == "" {
-		ref = c.cfg.Sessions[c.host].DefaultApp
+		ref, _ = c.defaultApp()
 	}
+	if a := c.acting(); a != nil && len(a.Apps) > 0 {
+		if app, err := api.ResolveApp(apiApps(a.Apps), ref); err == nil {
+			c.appCache = app
+			return app
+		}
+	}
+	apps, _ := c.appsList()
 	app, err := api.ResolveApp(apps, ref)
 	if err != nil {
 		fail(err)
@@ -143,6 +186,10 @@ func (c *ctx) env(args []string) {
 	write := fs.String("write", "", "append/replace QUBE_* lines in this file (e.g. .env)")
 	show := fs.Bool("print", false, "print the values to stdout (they are otherwise never shown)")
 	parseAnywhere(fs, args)
+	if a := c.acting(); a != nil {
+		ui.Fail("qube env doesn't work while acting as %s: an act-as grant never reads the customer's API key or webhook secret. "+
+			"Every other command uses the API through the grant itself; `qube act-as --end` returns to your own apps.", a.Organization)
+	}
 	if c.cfg.Sessions[c.host].ReadOnly() {
 		ui.Fail("this session is read-only, so it can't read the app's API key or webhook secret. `qube login` again and choose read and write access.")
 	}

@@ -923,6 +923,15 @@ func (c *ctx) adminGrants(cl *api.Client, args []string) {
 		}
 		org, _ := out.Data["organization"].(map[string]interface{})
 		fmt.Printf("Revoked grant %s (%s).\n", args[1], orEmpty(str(org["name"]), "its organization"))
+		if a := c.acting(); a != nil && a.GrantID == args[1] {
+			s := c.cfg.Sessions[c.host]
+			s.ActingAs = nil
+			c.cfg.Sessions[c.host] = s
+			if err := c.cfg.Save(); err != nil {
+				ui.Warn("saving config: %v", err)
+			}
+			ui.Info("It was this session's grant: commands use your own session again.")
+		}
 		return
 	}
 	if len(args) > 0 {

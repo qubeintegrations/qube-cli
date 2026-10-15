@@ -40,11 +40,34 @@ func (c *ctx) chosenConnection(usage string) string {
 
 // defaultConnection is the connection `qube use --connection` chose for the current app, or "".
 func (c *ctx) defaultConnection() string {
-	s := c.cfg.Sessions[c.host]
-	if len(s.DefaultConnections) == 0 {
+	defaults := c.defaultConnections()
+	if len(defaults) == 0 {
 		return ""
 	}
-	return s.DefaultConnections[c.currentApp().ID].ID
+	return defaults[c.currentApp().ID].ID
+}
+
+// defaultConnections are the connections `qube use --connection` chose, by app id: the
+// grant's while acting as an organization, else the session's.
+func (c *ctx) defaultConnections() map[string]config.Connection {
+	if a := c.acting(); a != nil {
+		return a.DefaultConnections
+	}
+	return c.cfg.Sessions[c.host].DefaultConnections
+}
+
+// saveDefaultConnections stores them where defaultConnections reads them, and saves.
+func (c *ctx) saveDefaultConnections(m map[string]config.Connection) {
+	if a := c.acting(); a != nil {
+		a.DefaultConnections = m
+	} else {
+		s := c.cfg.Sessions[c.host]
+		s.DefaultConnections = m
+		c.cfg.Sessions[c.host] = s
+	}
+	if err := c.cfg.Save(); err != nil {
+		fail(err)
+	}
 }
 
 // explicitConnection is a connection named on the command line (an argument or --connection)
@@ -64,13 +87,10 @@ func (c *ctx) explicitConnection(args []string, usage string) string {
 // name prefix only one connection has. "none" forgets the default.
 func (c *ctx) useConnection(ref string) {
 	app := c.currentApp()
-	s := c.cfg.Sessions[c.host]
 	if ref == "none" || ref == "-" {
-		delete(s.DefaultConnections, app.ID)
-		c.cfg.Sessions[c.host] = s
-		if err := c.cfg.Save(); err != nil {
-			fail(err)
-		}
+		defaults := c.defaultConnections()
+		delete(defaults, app.ID)
+		c.saveDefaultConnections(defaults)
 		ui.Info("No default connection for %s: commands need one named.", app.Name)
 		return
 	}
@@ -91,15 +111,12 @@ func (c *ctx) useConnection(ref string) {
 // setDefaultConnection saves cn as the current app's default connection.
 func (c *ctx) setDefaultConnection(cn config.Connection) {
 	app := c.currentApp()
-	s := c.cfg.Sessions[c.host]
-	if s.DefaultConnections == nil {
-		s.DefaultConnections = map[string]config.Connection{}
+	defaults := c.defaultConnections()
+	if defaults == nil {
+		defaults = map[string]config.Connection{}
 	}
-	s.DefaultConnections[app.ID] = cn
-	c.cfg.Sessions[c.host] = s
-	if err := c.cfg.Save(); err != nil {
-		fail(err)
-	}
+	defaults[app.ID] = cn
+	c.saveDefaultConnections(defaults)
 	if ui.JSON {
 		ui.PrintJSON(map[string]interface{}{"app": app, "connection": cn})
 		return
@@ -109,19 +126,16 @@ func (c *ctx) setDefaultConnection(cn config.Connection) {
 
 // forgetConnection drops a removed connection wherever it is a default.
 func (c *ctx) forgetConnection(id string) {
-	s := c.cfg.Sessions[c.host]
+	defaults := c.defaultConnections()
 	changed := false
-	for app, cn := range s.DefaultConnections {
+	for app, cn := range defaults {
 		if cn.ID == id {
-			delete(s.DefaultConnections, app)
+			delete(defaults, app)
 			changed = true
 		}
 	}
 	if changed {
-		c.cfg.Sessions[c.host] = s
-		if err := c.cfg.Save(); err != nil {
-			fail(err)
-		}
+		c.saveDefaultConnections(defaults)
 		ui.Info("It was the default connection; choose another with `qube use --connection`.")
 	}
 }

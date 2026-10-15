@@ -53,6 +53,22 @@ func fastApprovals(t *testing.T) {
 	t.Cleanup(func() { approvalPollMin, approvalPollDefault = min, def })
 }
 
+// actingAs gives c's session a grant in Acme Corp's sandbox apps, with an hour and a half left.
+func actingAs(t *testing.T, c *ctx, access string) {
+	t.Helper()
+	s := c.cfg.Sessions[c.host]
+	s.ActingAs = &config.ActAs{
+		Token: "qct_grant", GrantID: "grant-1", OrganizationID: acmeID, Organization: "Acme Corp",
+		Scope: "sandbox", Access: access, Reason: "Onboarding: install invoice sync",
+		ExpiresAt: time.Now().Add(90*time.Minute + 30*time.Second).UTC().Format(time.RFC3339),
+		Apps:      []config.App{{ID: "app1", Name: "App", Sandbox: true}}, DefaultApp: "app1", DefaultAppName: "App",
+	}
+	c.cfg.Sessions[c.host] = s
+	if err := c.cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // saved is this host's session as the config file now holds it.
 func saved(t *testing.T, c *ctx) config.Session {
 	t.Helper()
@@ -77,6 +93,7 @@ func inChild(t *testing.T, body func(c *ctx)) bool {
 	c := &ctx{host: os.Getenv("QUBE_TEST_HOST"), cfg: cfg, bg: context.Background(), yes: os.Getenv("QUBE_TEST_YES") == "1"}
 	ui.JSON = os.Getenv("QUBE_TEST_JSON") == "1"
 	approvalPollMin, approvalPollDefault = time.Millisecond, 5*time.Millisecond
+	c.dropEndedActAs()
 	body(c)
 	os.Exit(0)
 	return true
@@ -171,15 +188,18 @@ func TestLoginAgentAdminStoresTheActor(t *testing.T) {
 	}
 }
 
-// `qube status` shows the actor, agent, permissions and expiry; --json never shows the token.
-func TestStatusShowsStaff(t *testing.T) {
+// `qube status` shows the actor, agent, permissions and expiry, and the grant held; --json
+// never shows the grant's token.
+func TestStatusShowsStaffAndTheGrant(t *testing.T) {
 	c := staffCtx(t, true, nil)
 	s := c.cfg.Sessions[c.host]
 	s.Actor, s.AgentName = "agent", "Claude Code"
 	c.cfg.Sessions[c.host] = s
+	actingAs(t, c, "configure")
 	setJSON(t, false)
 	out := captureStdout(t, c.status)
-	for _, want := range []string{`Actor:        agent "Claude Code"`, "Staff:        admin.read admin.read_customer_data", "Session ends:"} {
+	for _, want := range []string{`Actor:        agent "Claude Code"`, "Staff:        admin.read admin.read_customer_data", "Session ends:",
+		"Acting as:    Acme Corp (sandbox apps, configure) until", "Reason:     Onboarding: install invoice sync"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("status lacks %q:\n%s", want, out)
 		}
@@ -190,7 +210,8 @@ func TestStatusShowsStaff(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got["actor"] != "agent" || got["agent_name"] != "Claude Code" || len(got["permissions"].([]interface{})) != 6 {
+	acting, _ := got["acting_as"].(map[string]interface{})
+	if got["actor"] != "agent" || got["agent_name"] != "Claude Code" || len(got["permissions"].([]interface{})) != 6 || acting["access"] != "configure" {
 		t.Fatalf("json = %v", got)
 	}
 	if strings.Contains(out, "qct_") {
@@ -280,6 +301,7 @@ func TestAdminStatusCheckExitCodes(t *testing.T) {
 			writeJSON(w, 200, map[string]interface{}{"data": statusSnapshot(attention), "meta": map[string]interface{}{}})
 		},
 	})
+	actingAs(t, c, "read_write") // a grant never reaches /api/admin
 	setJSON(t, false)
 	var code int
 	out := captureStdout(t, func() { code = c.adminStatus(c.staffClient(), []string{"--check"}) })
@@ -629,6 +651,11 @@ func TestCompletionKnowsEveryCommand(t *testing.T) {
 			if !aliases[c] && !contains(commandTree[tc.tree], c) {
 				t.Errorf("%s dispatches %q, which completion's commandTree[%q] lacks", tc.file, c, tc.tree)
 			}
+		}
+	}
+	for _, f := range []string{"--reason", "--for", "--production", "--access", "--write-budget", "--wait", "--no-wait", "--resume", "--end", "--status"} {
+		if !contains(commandTree["act-as"], f) {
+			t.Errorf("completion lacks act-as %s", f)
 		}
 	}
 	for _, f := range []string{"--admin", "--agent"} {

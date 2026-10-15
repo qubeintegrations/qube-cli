@@ -17,12 +17,19 @@ import (
 	"github.com/qubeintegrations/qube-cli/internal/ui"
 )
 
-// cli is a client for the /api/cli endpoints, carrying this host's session token (if any).
+// cli is a client for the /api/cli endpoints (and, given an app, /api/v1 and /api/v2),
+// carrying this host's session token (if any). While the session holds an act-as grant, the
+// grant's token goes instead, on every route but the staff ones (api.StaffOnly), and a 401 to
+// it drops the grant (actAsRefused).
 func (c *ctx) cli() *api.Client {
 	cl := api.New(c.host, c.timeout)
 	cl.Ctx = c.bg
 	if s, ok := c.cfg.Sessions[c.host]; ok {
 		cl.Token = s.Token
+		if s.ActingAs != nil {
+			cl.ActAsToken = s.ActingAs.Token
+			cl.OnActAsRefused = c.actAsRefused
+		}
 	}
 	return cl
 }
@@ -73,6 +80,9 @@ func (c *ctx) login(args []string) {
 	if err != nil {
 		fail(err)
 	}
+	// A new session replaces this host's: an act-as grant the old one held is ended first, so
+	// it doesn't outlive the session that asked for it on this machine.
+	c.endActAsQuietly()
 	s := config.Session{
 		Token: grant.Token, ExpiresAt: grant.ExpiresAt, Scope: grant.Scope, Access: grant.Access,
 		UserEmail: grant.User.Email, Organization: grant.Organization.Name,
@@ -214,6 +224,7 @@ func mustPath() string {
 }
 
 func (c *ctx) logout() {
+	c.endActAsQuietly()
 	cl := c.staffClient()
 	if cl.Token != "" {
 		if err := cl.Do("DELETE", "/api/cli/session", nil, nil, nil); err != nil {
@@ -251,6 +262,12 @@ func (c *ctx) status() {
 				out["agent_name"] = s.AgentName
 			}
 			out["permissions"] = permissionList(s.Permissions)
+			if s.ActingAs != nil {
+				out["acting_as"] = actAsJSON(s.ActingAs)
+			}
+			if s.PendingActAs != nil {
+				out["pending_act_as"] = pendingJSON(s.PendingActAs)
+			}
 		}
 		out["hosts"] = hostList(c.cfg)
 		ui.PrintJSON(out)
@@ -289,6 +306,16 @@ func (c *ctx) status() {
 		exp += "  EXPIRED -- run `qube login`"
 	}
 	fmt.Printf("Session ends: %s\n", exp)
+	if a := s.ActingAs; a != nil {
+		fmt.Printf("Acting as:    %s (%s, %s) until %s, %s\n", a.Organization, reachLabel(a.Scope), grantAccessLabel(a.Access), localTime(a.ExpiresAt), untilLabel(a.ExpiresAt))
+		if a.DefaultAppName != "" {
+			fmt.Printf("  Its app:    %s (%s)\n", a.DefaultAppName, a.DefaultApp)
+		}
+		fmt.Printf("  Reason:     %s\n", a.Reason)
+	}
+	if p := s.PendingActAs; p != nil {
+		fmt.Printf("Waiting:      a grant for %s, until someone approves code %s at %s (expires %s)\n", orgLabel(p.Organization, p.OrganizationID), p.UserCode, p.VerificationURIComplete, localTime(p.ExpiresAt))
+	}
 	if len(c.cfg.Sessions) > 1 {
 		fmt.Printf("Other hosts:  %v\n", hostList(c.cfg))
 	}

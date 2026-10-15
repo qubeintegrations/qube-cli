@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -29,6 +30,12 @@ type ctx struct {
 	yes          bool     // --yes: answer a confirmation (production writes, deletes) for a script
 	connection   string   // --connection: the connection a command acts on, when it doesn't name one
 	appCache     *api.App // the app this command acts as, once looked up
+
+	// act-as (actas.go): what ended when the config was read, the organization whose grant the
+	// server refused, and the once that drops it.
+	actAsEnded string
+	refusedOrg string
+	actAsOnce  sync.Once
 }
 
 func main() {
@@ -101,6 +108,13 @@ func main() {
 		usage()
 		return
 	}
+	c.dropEndedActAs()
+	switch {
+	case usesActAs(args):
+		c.enterActAs()
+	case c.actAsEnded != "" && (args[0] == "status" || args[0] == "admin" || args[0] == "act-as"):
+		ui.Info("(%s; it's dropped)", c.actAsEnded)
+	}
 	switch args[0] {
 	case "version":
 		fmt.Println("qube " + api.Version)
@@ -138,6 +152,8 @@ func main() {
 		c.rawAPI(args[1:])
 	case "admin":
 		c.admin(args[1:])
+	case "act-as":
+		c.actAs(args[1:])
 	case "completion":
 		completion(args[1:])
 	default:
@@ -148,6 +164,23 @@ func main() {
 // signalContext is cancelled on Ctrl-C or SIGTERM: every command's requests carry it.
 func signalContext() (context.Context, context.CancelFunc) {
 	return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+}
+
+// usesActAs says whether a command would use an act-as grant the session holds: every one
+// but those about the session itself, `qube admin` (always the staff session) and
+// `qube act-as`. Completion's `qb --complete` reads only the cache and stays quiet.
+func usesActAs(args []string) bool {
+	switch args[0] {
+	case "version", "login", "logout", "status", "admin", "act-as", "completion":
+		return false
+	case "qb", "quickbooks":
+		for _, a := range args[1:] {
+			if a == "--complete" {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // parseTimeout reads "30" or "30s" or "2m"; empty or invalid means the default (60 s).
@@ -297,7 +330,7 @@ Logging in:
   status | sessions | whoami       who holds the session (a person or an agent), its staff
                                    permissions and when it ends
 
-Monitoring, across every organization:
+Monitoring, across every organization (always with the staff session, never an act-as grant):
   admin status [--check]                   service health; --check exits 1 when something needs attention
   admin tail [--kind K,...] [--org ORG] [--production] [--since 10m] [--detail]
                                            events as they happen (Ctrl-C stops, exit 130)
@@ -318,8 +351,23 @@ Monitoring, across every organization:
   ORG is an organization's id or exact name. Customer data (--xml, --io, --events, --args,
   --detail) is asked for explicitly and needs admin.read_customer_data.
 
+Acting in a customer's organization:
+  act-as ORG --reason R [--for 60m] [--production] [--access read_only|configure|read_write]
+         [--write-budget N] [--wait|--no-wait]
+                                   a person's sandbox grant starts at once (up to 8 h, read and
+                                   write); a production grant (--production: every app, up to 2 h,
+                                   configure) and any grant an agent asks for is approved in the
+                                   browser; --no-wait prints the link and exits
+  act-as [--status]                the grant this session holds, or waits for
+  act-as --resume                  wait for a grant asked for with --no-wait
+  act-as --end                     revoke it and go back to your own organization
+  While acting, every other command (workflows, connections, simulator, qb, listen, api...) works
+  in the customer's organization, with the grant's apps, and prints "(acting as ...)" on stderr,
+  --json included. qube env is unavailable: the customer's API key never leaves the server. A
+  grant that ends stops the next command instead of letting it run in your own organization.
+
 Grants and agents:
-  admin grants                     live act-as grants, and grants waiting for approval
+  admin grants                     live grants, and grants waiting for approval
   admin grants revoke <id>         end one
   admin agents                     agents' live sessions, and whether agent staff access is on
   admin agents revoke <id> | revoke --all [--staff]
@@ -328,7 +376,8 @@ Grants and agents:
   admin agents disable | enable    the kill switch: every agent's staff access off, or back on
 
 --yes answers qube's own questions (a production write, a delete), for an agent's session too. It
-widens nothing: the server holds every agent to its limits, whatever --yes says.
+widens nothing: the server holds every agent and every grant to its access, write budget and rate
+limit, whatever --yes says.
 `)
 }
 
