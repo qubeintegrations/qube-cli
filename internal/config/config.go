@@ -85,6 +85,7 @@ func (a *ActAs) ReadOnly() bool { return a.Access == "read_only" }
 // PendingActAs is a grant asked for and not yet approved: the device code that redeems it
 // once a person approves it in the browser (kept only until then), and what was asked.
 type PendingActAs struct {
+	RequestID               string `json:"request_id,omitempty"` // withdraws it: DELETE /api/admin/grants/:id
 	DeviceCode              string `json:"device_code"`
 	UserCode                string `json:"user_code"`
 	VerificationURIComplete string `json:"verification_uri_complete"`

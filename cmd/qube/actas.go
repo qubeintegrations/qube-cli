@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/qubeintegrations/qube-cli/internal/api"
 	"github.com/qubeintegrations/qube-cli/internal/config"
 	"github.com/qubeintegrations/qube-cli/internal/ui"
+	"github.com/qubeintegrations/qube-cli/internal/uuid"
 )
 
 // `qube act-as ORG --reason R` (QuBe Sync staff): a short-lived grant to act in a customer's
@@ -187,6 +189,7 @@ func (c *ctx) collectPending(wait bool) *config.ActAs {
 	}
 	a := &config.ActAs{
 		Token:          grant.Token,
+		GrantID:        grant.ID,
 		OrganizationID: grant.Organization.ID,
 		Organization:   grant.Organization.Name,
 		Scope:          grant.Scope,
@@ -201,12 +204,8 @@ func (c *ctx) collectPending(wait bool) *config.ActAs {
 	if grant.ApprovedBy != nil {
 		a.ApprovedBy = grant.ApprovedBy.Email
 	}
-	// The token's answer doesn't list the grant's apps, as a 201 does: ask with the grant.
-	if apps, _, err := c.grantClient(a.Token).Apps(); err == nil {
-		a.Apps = configApps(apps)
-	} else {
-		ui.Info("(couldn't list the grant's apps yet: %v)", err)
-	}
+	// The token's answer lists the grant's apps, as a 201 does.
+	a.Apps = configApps(grant.Apps)
 	c.holdGrant(a)
 	return a
 }
@@ -365,7 +364,11 @@ func (c *ctx) startActAs(ref string, o actAsOptions) {
 		c.cfg.Sessions[c.host] = s
 	}
 	cl := c.staffClient()
-	orgID, orgName := c.resolveOrganization(cl, ref)
+	// An id goes as is: the answer names the organization.
+	orgID, orgName := strings.TrimSpace(ref), ""
+	if !uuid.Valid(orgID) {
+		orgID, orgName = c.resolveOrganization(cl, ref)
+	}
 	req := api.ActAsRequest{
 		OrganizationID: orgID, Reason: o.reason, Minutes: o.minutes, Scope: "sandbox",
 		Access: o.access, WriteBudget: o.writeBudget,
@@ -421,7 +424,10 @@ func (c *ctx) pendingGrant(ans *api.ActAsAnswer, orgID, orgName string, noWait b
 		Interval:  ap.Interval, OrganizationID: orgID, Organization: orgName,
 	}
 	if r := ans.Request; r != nil {
-		p.Scope, p.Access, p.Minutes, p.Reason = r.Scope, r.Access, r.Minutes, r.Reason
+		p.RequestID, p.Scope, p.Access, p.Minutes, p.Reason = r.ID, r.Scope, r.Access, r.Minutes, r.Reason
+		if r.Organization != nil && r.Organization.Name != "" {
+			p.Organization = r.Organization.Name
+		}
 	}
 	s := c.cfg.Sessions[c.host]
 	s.PendingActAs = p
@@ -495,6 +501,21 @@ func (c *ctx) endActAs() {
 	if a != nil {
 		revokeErr = c.revokeGrant(a)
 	}
+	// A grant still waiting for approval is withdrawn on the server, so its code can't be
+	// approved later; without a request id (an older server) it just expires unused.
+	withdrawn := false
+	if p != nil && p.RequestID != "" {
+		err := c.staffClient().Do("DELETE", "/api/admin/grants/"+url.PathEscape(p.RequestID), nil, nil, nil)
+		var e *api.Error
+		switch {
+		case err == nil:
+			withdrawn = true
+		case errors.As(err, &e) && e.Status == http.StatusNotFound:
+			// Already answered or expired: nothing left to withdraw.
+		default:
+			ui.Warn("couldn't withdraw the grant waiting for approval (its code expires unused): %v", staffError(c.host, err))
+		}
+	}
 	s.ActingAs, s.PendingActAs = nil, nil
 	c.cfg.Sessions[c.host] = s
 	if err := c.cfg.Save(); err != nil {
@@ -511,11 +532,14 @@ func (c *ctx) endActAs() {
 		}
 		if p != nil {
 			out["dropped_pending"] = pendingJSON(p)
+			out["withdrawn"] = withdrawn
 		}
 		ui.PrintJSON(out)
 		return
 	}
-	if p != nil {
+	if p != nil && withdrawn {
+		fmt.Printf("Withdrew the grant for %s that was waiting for approval: its code can't be approved now.\n", orgLabel(p.Organization, p.OrganizationID))
+	} else if p != nil {
 		fmt.Printf("Dropped the grant for %s that was waiting for approval (its code expires unused).\n", orgLabel(p.Organization, p.OrganizationID))
 	}
 	if a != nil {

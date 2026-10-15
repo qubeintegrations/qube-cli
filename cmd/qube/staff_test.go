@@ -724,3 +724,30 @@ func TestHelpPointsAtStaffCommandsOnlyForStaff(t *testing.T) {
 		}
 	}
 }
+
+// A cursor of 0 (no event yet) goes back as after=0 rather than falling back to a time.
+func TestAdminTailPassesACursorOfZero(t *testing.T) {
+	fastListen(t)
+	var mu sync.Mutex
+	var seen []url.Values
+	ctx, cancel := context.WithCancel(context.Background())
+	c := staffCtx(t, true, map[string]http.HandlerFunc{
+		"/api/admin/events": func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			seen = append(seen, r.URL.Query())
+			n := len(seen)
+			mu.Unlock()
+			if n >= 2 {
+				cancel()
+			}
+			w.Header().Set("x-qube-cursor", "0")
+			w.WriteHeader(204)
+		},
+	})
+	c.bg = ctx
+	setJSON(t, false)
+	_ = captureStdout(t, func() { _ = c.adminTail(c.staffClient(), nil) })
+	if len(seen) < 2 || seen[0].Get("after") != "" || seen[1].Get("after") != "0" || seen[1].Get("since") != "" {
+		t.Fatalf("queries = %v", seen)
+	}
+}

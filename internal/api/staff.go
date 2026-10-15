@@ -67,12 +67,17 @@ type ActAsAnswer struct {
 	Apps     []App     `json:"apps"`
 	Approval *Approval `json:"approval"`
 	Request  *struct {
+		ID             string `json:"id"` // DELETE /api/admin/grants/:id withdraws it before approval
 		OrganizationID string `json:"organization_id"`
-		Scope          string `json:"scope"`
-		Access         string `json:"access"`
-		Minutes        int    `json:"minutes"`
-		Reason         string `json:"reason"`
-		WriteBudget    *int   `json:"write_budget"`
+		Organization   *struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"organization"`
+		Scope       string `json:"scope"`
+		Access      string `json:"access"`
+		Minutes     int    `json:"minutes"`
+		Reason      string `json:"reason"`
+		WriteBudget *int   `json:"write_budget"`
 	} `json:"request"`
 }
 

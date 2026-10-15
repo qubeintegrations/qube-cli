@@ -52,7 +52,8 @@ func grantPending(w http.ResponseWriter, r *http.Request) {
 		"approval": map[string]interface{}{"device_code": "qcd_secret", "user_code": "W2HT-9RNC",
 			"verification_uri": "https://qubesync.example/app/cli/activate", "verification_uri_complete": "https://qubesync.example/app/cli/activate?code=W2HT-9RNC",
 			"expires_in": 600, "interval": 0},
-		"request": map[string]interface{}{"organization_id": acmeID, "scope": "all", "access": "configure", "minutes": 30, "reason": reason, "write_budget": nil},
+		"request": map[string]interface{}{"id": "req-1", "organization_id": acmeID, "organization": map[string]string{"id": acmeID, "name": "Acme Corp"},
+			"scope": "all", "access": "configure", "minutes": 30, "reason": reason, "write_budget": nil},
 	}})
 }
 
@@ -82,7 +83,8 @@ func (ta *tokenAnswers) handle(w http.ResponseWriter, r *http.Request) {
 	case "expired":
 		writeJSON(w, 400, map[string]interface{}{"error": map[string]string{"code": "expired_token", "message": "this login attempt expired"}})
 	default:
-		writeJSON(w, 200, map[string]interface{}{"token": "qct_grant", "token_type": "Bearer", "expires_at": inAnHour(), "scope": "all",
+		writeJSON(w, 200, map[string]interface{}{"id": "grant-2", "token": "qct_grant", "token_type": "Bearer", "expires_at": inAnHour(), "scope": "all",
+			"apps":   []map[string]interface{}{{"id": "app1", "name": "App", "sandbox": true}, {"id": "app2", "name": "App Prod", "sandbox": false}},
 			"access": "configure", "kind": "act_as", "actor": "human", "permissions": []string{}, "reason": reason, "write_budget": nil,
 			"parent_id": "sess-1", "approved_by": map[string]string{"email": "garrett@qubesync.com"},
 			"user": map[string]string{"email": "garrett@qubesync.com"}, "organization": map[string]string{"id": acmeID, "name": "Acme Corp"}})
@@ -145,22 +147,16 @@ func TestActAsJSONShape(t *testing.T) {
 }
 
 // A production grant waits for approval: the link goes to stderr, the CLI polls
-// /api/cli/token until it's approved, then lists the grant's apps with the grant itself.
+// /api/cli/token until it's approved, and keeps the id and apps the token's answer carries.
 func TestActAsProductionWaitsForApproval(t *testing.T) {
 	ta := &tokenAnswers{answers: []string{"pending", "pending", "approved"}}
 	var body map[string]interface{}
-	var appsAuth string
 	c := staffCtx(t, true, map[string]http.HandlerFunc{
 		"/api/cli/act-as": func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			grantPending(w, r)
 		},
 		"/api/cli/token": ta.handle,
-		// the grant's apps, asked for with the grant once it is approved
-		"/api/cli/apps": func(w http.ResponseWriter, r *http.Request) {
-			appsAuth = r.Header.Get("Authorization")
-			writeJSON(w, 200, map[string]interface{}{"data": []map[string]interface{}{{"id": "app9", "name": "Acme Prod", "sandbox": false}}, "scope": "all"})
-		},
 	})
 	setJSON(t, false)
 	var out string
@@ -180,11 +176,9 @@ func TestActAsProductionWaitsForApproval(t *testing.T) {
 		t.Fatalf("stdout = %q", out)
 	}
 	s := saved(t, c)
-	if s.PendingActAs != nil || s.ActingAs == nil || s.ActingAs.ApprovedBy != "garrett@qubesync.com" || s.ActingAs.Access != "configure" || len(s.ActingAs.Apps) != 1 {
+	if s.PendingActAs != nil || s.ActingAs == nil || s.ActingAs.ApprovedBy != "garrett@qubesync.com" || s.ActingAs.Access != "configure" ||
+		s.ActingAs.GrantID != "grant-2" || len(s.ActingAs.Apps) != 2 || s.ActingAs.Apps[1].Name != "App Prod" {
 		t.Fatalf("saved %+v %+v", s.PendingActAs, s.ActingAs)
-	}
-	if appsAuth != "Bearer qct_grant" || s.ActingAs.Apps[0].Name != "Acme Prod" || s.ActingAs.DefaultApp != "app9" {
-		t.Fatalf("apps asked with %q: %+v", appsAuth, s.ActingAs.Apps)
 	}
 	if strings.Contains(out+errOut, "qcd_secret") {
 		t.Fatal("the device code was printed")
@@ -199,7 +193,7 @@ func TestActAsDenied(t *testing.T) {
 	ta := &tokenAnswers{answers: []string{"pending", "denied"}}
 	c := staffCtx(t, true, map[string]http.HandlerFunc{"/api/cli/act-as": grantPending, "/api/cli/token": ta.handle})
 	code, out := runChild(t, c)
-	if code != ui.ExitFailure || !strings.Contains(out, "the grant for organization "+acmeID+" was denied in the browser") {
+	if code != ui.ExitFailure || !strings.Contains(out, "the grant for Acme Corp was denied in the browser") {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
 	if s := saved(t, c); s.PendingActAs != nil || s.ActingAs != nil {
@@ -254,7 +248,7 @@ func TestActAsNoWaitThenResume(t *testing.T) {
 		t.Fatalf("printed the device code or polled: %s %v", out, ta.codes)
 	}
 	p := saved(t, c).PendingActAs
-	if p == nil || p.DeviceCode != "qcd_secret" || p.Organization != "Acme Corp" || p.OrganizationID != acmeID {
+	if p == nil || p.DeviceCode != "qcd_secret" || p.RequestID != "req-1" || p.Organization != "Acme Corp" || p.OrganizationID != acmeID {
 		t.Fatalf("pending = %+v", p)
 	}
 	out = captureStdout(t, func() { _ = captureStderr(t, func() { c.actAs([]string{"--resume"}) }) })
@@ -643,5 +637,55 @@ func TestGrantRefusalsReadClearly(t *testing.T) {
 	code, out := runChild(t, c)
 	if code != ui.ExitFailure || !strings.Contains(out, "write_budget_spent") || !strings.Contains(out, "used its write budget") || !strings.Contains(out, "`qube act-as --end`") {
 		t.Fatalf("exit %d:\n%s", code, out)
+	}
+}
+
+// A grant approved in the browser keeps the id and apps the token's answer carries, with no
+// extra call to list the apps.
+func TestApprovedGrantKeepsItsIDAndApps(t *testing.T) {
+	ta := &tokenAnswers{answers: []string{"approved"}}
+	listed := false
+	c := staffCtx(t, true, map[string]http.HandlerFunc{
+		"/api/cli/token": ta.handle,
+		"/api/cli/apps": func(w http.ResponseWriter, r *http.Request) {
+			listed = true
+			writeJSON(w, 200, map[string]interface{}{"data": []interface{}{}})
+		},
+	})
+	s := c.cfg.Sessions[c.host]
+	s.PendingActAs = &config.PendingActAs{RequestID: "req-1", DeviceCode: "qcd_secret", UserCode: "W2HT-9RNC", VerificationURIComplete: "https://qubesync.example/a", ExpiresAt: inAnHour(), OrganizationID: acmeID, Organization: "Acme Corp", Scope: "all"}
+	c.cfg.Sessions[c.host] = s
+	withConfig(t, c)
+	setJSON(t, false)
+	_ = captureStdout(t, func() { _ = captureStderr(t, func() { c.actAs([]string{"--resume"}) }) })
+	a := saved(t, c).ActingAs
+	if a == nil || a.GrantID != "grant-2" || len(a.Apps) != 2 || listed {
+		t.Fatalf("overlay = %+v, listed apps separately: %v", a, listed)
+	}
+}
+
+// --end withdraws a grant still waiting for approval on the server, with the staff token.
+func TestActAsEndWithdrawsAPendingGrant(t *testing.T) {
+	var method, auth string
+	c := staffCtx(t, true, map[string]http.HandlerFunc{
+		"/api/admin/grants/req-1": func(w http.ResponseWriter, r *http.Request) {
+			method, auth = r.Method, r.Header.Get("Authorization")
+			writeJSON(w, 200, map[string]interface{}{"data": map[string]interface{}{"id": "req-1", "status": "cancelled"}})
+		},
+	})
+	s := c.cfg.Sessions[c.host]
+	s.PendingActAs = &config.PendingActAs{RequestID: "req-1", DeviceCode: "qcd_secret", UserCode: "W2HT-9RNC", VerificationURIComplete: "https://qubesync.example/a", ExpiresAt: inAnHour(), OrganizationID: acmeID, Organization: "Acme Corp", Scope: "all"}
+	c.cfg.Sessions[c.host] = s
+	withConfig(t, c)
+	setJSON(t, false)
+	out := captureStdout(t, func() { c.actAs([]string{"--end"}) })
+	if method != "DELETE" || auth != "Bearer qct_staff" {
+		t.Fatalf("withdrew with %s %q", method, auth)
+	}
+	if !strings.Contains(out, "Withdrew the grant for Acme Corp that was waiting for approval") {
+		t.Fatalf("output = %q", out)
+	}
+	if saved(t, c).PendingActAs != nil {
+		t.Fatal("the pending grant was kept")
 	}
 }

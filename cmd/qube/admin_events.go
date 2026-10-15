@@ -69,16 +69,14 @@ func (c *ctx) adminTail(cl *api.Client, args []string) error {
 	}
 	base := c.eventQuery(cl, f)
 	base.Set("wait", strconv.Itoa(tailWait))
-	// Without a cursor the stream starts now (or at --since). A cursor of 0 (no event at all
-	// yet) can't be passed back as `after`, so until there is a real one, the time the tail
-	// began stands in as `since`.
+	// Without a cursor the stream starts now (or at --since); after the first answer, its
+	// cursor (0 when there is no event at all yet) goes back as `after`.
 	start := *since
 	if start == "" {
 		ui.Info("Watching events. Ctrl-C stops.")
 	} else {
 		ui.Info("Watching events since %s. Ctrl-C stops.", start)
 	}
-	began := time.Now().UTC().Format(time.RFC3339)
 	cursor := ""
 	var pause time.Duration
 	for {
@@ -86,7 +84,7 @@ func (c *ctx) adminTail(cl *api.Client, args []string) error {
 		for k, v := range base {
 			q[k] = v
 		}
-		if cursor != "" && cursor != "0" {
+		if cursor != "" {
 			q.Set("after", cursor)
 		} else if start != "" {
 			q.Set("since", start)
@@ -116,9 +114,6 @@ func (c *ctx) adminTail(cl *api.Client, args []string) error {
 		}
 		if page.Cursor != "" {
 			cursor = page.Cursor
-		}
-		if (cursor == "" || cursor == "0") && start == "" {
-			start = began
 		}
 		for _, e := range page.Events {
 			printEvent(e, f.detail, false)

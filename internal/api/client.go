@@ -441,6 +441,7 @@ type DeviceStart struct {
 // TokenGrant is what POST /api/cli/token answers once a code is approved: a login's session,
 // or an act-as grant (Kind "act_as").
 type TokenGrant struct {
+	ID          string   `json:"id"` // the session's (or grant's) id (empty from servers before staff sessions)
 	Token       string   `json:"token"`
 	ExpiresAt   string   `json:"expires_at"`
 	Scope       string   `json:"scope"`
@@ -463,6 +464,7 @@ type TokenGrant struct {
 		ID   string `json:"id"`
 		Name string `json:"name"`
 	} `json:"organization"`
+	Apps []App `json:"apps"` // an act-as grant's apps, as the 201 lists them (none for a login)
 }
 
 // The staff permissions `qube login --admin` asks for (every one a CLI session can hold), and
