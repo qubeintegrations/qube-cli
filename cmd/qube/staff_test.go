@@ -695,3 +695,32 @@ func switchCases(t *testing.T, file, fn string) []string {
 	}
 	return out
 }
+
+// `qube help` points at the staff commands only for a session that holds staff permissions;
+// `qube help staff` lists them.
+func TestHelpPointsAtStaffCommandsOnlyForStaff(t *testing.T) {
+	withDeviceDir(t)
+	c := newAPITest(t, nil)
+	withConfig(t, c)
+	setenv(t, "QUBE_HOST", c.host)
+	setenv(t, "QUBE_CACHE_DIR", t.TempDir())
+	out := captureStdout(t, usage)
+	if strings.Contains(out, "help staff") || strings.Contains(out, "act-as") || strings.Contains(out, "admin status") {
+		t.Fatalf("an ordinary session's help mentions staff commands:\n%s", out)
+	}
+	s := c.cfg.Sessions[c.host]
+	s.Permissions = api.StaffPermissions
+	c.cfg.Sessions[c.host] = s
+	if err := c.cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if out = captureStdout(t, usage); !strings.Contains(out, "QuBe Sync staff: `qube help staff` lists the admin and act-as commands.") {
+		t.Fatalf("a staff session's help:\n%s", out)
+	}
+	out = captureStdout(t, staffUsage)
+	for _, want := range []string{"login --admin", "admin status [--check]", "admin tail", "act-as ORG --reason R", "act-as --end", "admin agents disable | enable", "whatever --yes says"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("staff help lacks %q", want)
+		}
+	}
+}

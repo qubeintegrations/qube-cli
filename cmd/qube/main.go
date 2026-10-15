@@ -312,6 +312,20 @@ Exit codes: 0 ok, 1 failed, 2 wrong usage, 130 interrupted.
 Config: ` + configPathForHelp() + ` (QUBE_CONFIG overrides). QUBE_NO_BROWSER=1 stops login opening a browser.
 The qb operation list is cached in ` + opsCacheDir() + ` (QUBE_CACHE_DIR overrides).
 `)
+	if staffSession() {
+		fmt.Print("\nQuBe Sync staff: `qube help staff` lists the admin and act-as commands.\n")
+	}
+}
+
+// staffSession says whether this host's session holds staff permissions (or an act-as
+// grant): only then does `qube help` point at the staff commands.
+func staffSession() bool {
+	cfg, err := config.Load()
+	if err != nil {
+		return false
+	}
+	s, ok := cfg.Sessions[cfg.ResolveHost(os.Getenv("QUBE_HOST"))]
+	return ok && (s.Staff() || s.ActingAs != nil)
 }
 
 // staffUsage is `qube help staff` and `qube admin help`: the commands for QuBe Sync staff,

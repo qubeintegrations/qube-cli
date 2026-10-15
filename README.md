@@ -173,6 +173,35 @@ app. A script answers with `--yes`. Without a terminal, or under `--json`, a req
 is refused until `--yes` is given, so nothing reaches a production company file by accident.
 Sessions reach production apps only when you choose **every app** at `qube login`.
 
+## QuBe Sync staff
+
+These commands work only for QuBe Sync staff, with a session approved for staff permissions;
+`qube help` leaves them out, and `qube help staff` lists them.
+
+```bash
+qube login --admin                                  # staff permissions; the session lasts 12 hours
+qube admin status --check                           # service health; exit 1 when something needs attention
+qube admin tail --production                        # events as they happen; Ctrl-C stops
+qube act-as "Acme Corp" --reason "Onboarding: install and test invoice sync" --for 2h
+qube workflows install invoice_sync --publish       # in Acme Corp's sandbox app
+qube act-as --end
+```
+
+- `qube act-as` asks for a short-lived grant in a customer's organization, recorded with its
+  reason. Until it ends, every command but `qube admin` works there, with the grant's apps, and
+  prints `(acting as Acme Corp · sandbox apps · read and write · 1h 52m left)` on stderr, under
+  `--json` too. A grant that ends stops the next command rather than letting it run in your own
+  organization. `qube env` is unavailable while acting.
+- A production grant (`--production`), and any grant an agent's session asks for, is approved in
+  the browser. `--no-wait` prints the link and exits; `qube act-as --resume`, or the next command
+  once it's approved, collects it.
+- An AI agent gets its own session in its own config:
+  `QUBE_CONFIG=~/.config/qube/agent.json qube login --agent "Claude Code" --admin`. Its `--yes`
+  answers the CLI's questions only: the server holds it to its grant's access, write budget and
+  rate limit.
+- The grant lives in the config file under the host's session (`acting_as`, or `pending_act_as`
+  while it waits for approval), with the same 0600 permissions as the session.
+
 ## Install
 
 Binaries for macOS, Linux and Windows (amd64 and arm64) are attached to each
@@ -204,6 +233,9 @@ directly. That is also what makes the CLI safe to hand to an AI agent: it
 can run `qube env --write .env` and `qube connections create --simulated` without ever seeing a
 secret, and you can revoke the session with `qube logout`, `qube sessions revoke <id>`, or from
 **CLI sessions** in the dashboard. Sessions expire after 30 days.
+
+`qube login --agent NAME` says an AI agent will hold the session: the person approving sees the
+name, and the session can revoke only itself, never your other sessions.
 
 The CLI calls the API with the session token, naming the app it acts as, so revoking a session cuts
 it off at once, and the server holds a read-only session to reads. The token goes only to the host
