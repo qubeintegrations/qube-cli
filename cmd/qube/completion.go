@@ -8,7 +8,8 @@ import (
 
 // The command tree the completion scripts describe. Keep in step with main() and usage().
 var commandTree = map[string][]string{
-	"":            {"login", "logout", "status", "whoami", "sessions", "apps", "use", "env", "connections", "match", "requests", "listen", "simulator", "workflows", "qb", "api", "completion", "version", "help"},
+	"":            {"login", "logout", "status", "whoami", "sessions", "apps", "use", "env", "connections", "match", "requests", "listen", "simulator", "workflows", "qb", "api", "admin", "completion", "version", "help"},
+	"login":       {"--name", "--read-only", "--agent", "--admin"},
 	"sessions":    {"revoke"},
 	"connections": {"list", "create", "show", "update", "delete", "qwc", "password", "onboarding-url", "name-index"},
 	"match":       matchKinds,
@@ -18,6 +19,15 @@ var commandTree = map[string][]string{
 	"workflows":   {"list", "show", "push", "validate", "publish", "unpublish", "delete", "versions", "usage", "schema", "templates", "install", "run", "runs", "decide", "cancel", "delete-run"},
 	"api":         {"GET", "POST", "PUT", "PATCH", "DELETE"},
 	"completion":  {"bash", "zsh", "fish"},
+	"help":        {"staff"},
+	// QuBe Sync staff (`qube help staff`): the admin subcommands and their flags, flat, since
+	// completion looks one word past the command.
+	"admin": {"help", "status", "tail", "events", "orgs", "org", "users", "user", "connections", "connection",
+		"requests", "request", "runs", "run", "jobs", "feedback", "mcp-calls", "audit", "grants", "agents",
+		"revoke", "disable", "enable", "--check", "--kind", "--org", "--production", "--since", "--detail", "--search",
+		"--page", "--page-size", "--type", "--stalled", "--state", "--webhook-state", "--limit", "--after", "--before",
+		"--xml", "--events", "--io", "--events-after", "--queue", "--worker", "--args", "--status", "--subject", "--days",
+		"--actor", "--token", "--action", "--all", "--staff"},
 }
 
 var globalFlags = []string{"--json", "--host", "--app", "--timeout", "--yes", "--connection"}

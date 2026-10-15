@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"net/url"
 	"os"
 	"os/user"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/qubeintegrations/qube-cli/internal/api"
@@ -28,11 +31,10 @@ func (c *ctx) login(args []string) {
 	fs := flag.NewFlagSet("login", flag.ExitOnError)
 	name := fs.String("name", "", "a name for this session (default: qube on <hostname>)")
 	readOnly := fs.Bool("read-only", false, "ask for a session that can look but not change anything")
+	agent := fs.String("agent", "", "an AI agent will hold this session: its name, as the person approving will see it")
+	admin := fs.Bool("admin", false, "ask for staff permissions (QuBe Sync staff only)")
 	parseAnywhere(fs, args)
-	access := "read_write"
-	if *readOnly {
-		access = "read_only"
-	}
+	req := loginRequest(*readOnly, *admin, *agent)
 	if *name == "" {
 		hn, _ := os.Hostname()
 		u, _ := user.Current()
@@ -42,9 +44,10 @@ func (c *ctx) login(args []string) {
 		}
 		*name = fmt.Sprintf("qube %s on %s%s (%s)", api.Version, who, hn, runtime.GOOS)
 	}
+	req.ClientName = *name
 	cl := api.New(c.host, c.timeout)
 	cl.Ctx = c.bg
-	start, err := cl.StartDevice(api.DeviceRequest{ClientName: *name, Access: access})
+	start, err := cl.StartDevice(req)
 	if err != nil {
 		fail(fmt.Errorf("starting login at %s: %w", c.host, err))
 	}
@@ -53,12 +56,18 @@ func (c *ctx) login(args []string) {
 	if *readOnly {
 		ui.Info("It asks for a read-only session; whoever approves it can change that.")
 	}
+	switch {
+	case req.AgentName != "":
+		ui.Info("It's for an AI agent (%q), which the person approving confirms; an agent's session can revoke only itself.", req.AgentName)
+	case len(req.Permissions) > 0:
+		ui.Info("It asks for staff permissions, so you'll be asked who will use the session.")
+	}
 	if ui.OpenBrowser(start.VerificationURIComplete) {
 		ui.Info("(opened in your browser)")
 	}
 	interval := time.Duration(start.Interval) * time.Second
-	if interval < 2*time.Second {
-		interval = 5 * time.Second
+	if interval < approvalPollMin {
+		interval = approvalPollDefault
 	}
 	grant, err := pollUntilApproved(c.bg, cl, start.DeviceCode, interval, time.Duration(start.ExpiresIn)*time.Second)
 	if err != nil {
@@ -67,6 +76,10 @@ func (c *ctx) login(args []string) {
 	s := config.Session{
 		Token: grant.Token, ExpiresAt: grant.ExpiresAt, Scope: grant.Scope, Access: grant.Access,
 		UserEmail: grant.User.Email, Organization: grant.Organization.Name,
+		Actor: grant.Actor, AgentName: grant.AgentName, Permissions: grant.Permissions,
+	}
+	if s.Actor == "human" {
+		s.Actor = ""
 	}
 	c.cfg.Sessions[c.host] = s
 	c.cfg.CurrentHost = c.host
@@ -78,10 +91,50 @@ func (c *ctx) login(args []string) {
 		reach = "every app"
 	}
 	if ui.JSON {
-		ui.PrintJSON(map[string]interface{}{"host": c.host, "user": grant.User.Email, "organization": grant.Organization.Name, "scope": grant.Scope, "access": accessOf(s), "expires_at": grant.ExpiresAt})
+		out := map[string]interface{}{"host": c.host, "user": grant.User.Email, "organization": grant.Organization.Name, "scope": grant.Scope, "access": accessOf(s), "expires_at": grant.ExpiresAt}
+		if req.AgentName != "" || len(req.Permissions) > 0 || len(grant.Permissions) > 0 {
+			out["actor"] = actorOf(s)
+			out["agent_name"] = s.AgentName
+			out["permissions"] = permissionList(s.Permissions)
+		}
+		ui.PrintJSON(out)
 		return
 	}
-	fmt.Printf("Logged in to %s as %s (%s, %s, %s). Session stored in %s\n", c.host, grant.User.Email, grant.Organization.Name, reach, s.AccessLabel(), mustPath())
+	if s.Agent() {
+		fmt.Printf("Logged in to %s as an agent session for %s (%q; %s, %s, %s). Session stored in %s\n", c.host, grant.User.Email, s.AgentName, grant.Organization.Name, reach, s.AccessLabel(), mustPath())
+	} else {
+		fmt.Printf("Logged in to %s as %s (%s, %s, %s). Session stored in %s\n", c.host, grant.User.Email, grant.Organization.Name, reach, s.AccessLabel(), mustPath())
+	}
+	if len(req.Permissions) == 0 && len(s.Permissions) == 0 {
+		return
+	}
+	if len(s.Permissions) == 0 {
+		ui.Warn("the session holds no staff permissions: the person approving ticked none, or %s doesn't offer staff sessions yet", c.host)
+		return
+	}
+	fmt.Printf("Staff: %s\n", strings.Join(s.Permissions, " "))
+	fmt.Printf("This session ends at %s (%s).\n", localTime(s.ExpiresAt), untilLabel(s.ExpiresAt))
+}
+
+// loginRequest is what `qube login` asks for: --read-only, --admin (every staff permission;
+// for an agent, the most an agent's session can hold) and --agent NAME.
+func loginRequest(readOnly, admin bool, agent string) api.DeviceRequest {
+	req := api.DeviceRequest{Access: "read_write"}
+	if readOnly {
+		req.Access = "read_only"
+	}
+	agent = strings.TrimSpace(agent)
+	if len([]rune(agent)) > 80 {
+		ui.Usage("--agent NAME is at most 80 characters")
+	}
+	req.AgentName = agent
+	if admin {
+		req.Permissions = api.StaffPermissions
+		if agent != "" {
+			req.Permissions = api.AgentPermissions
+		}
+	}
+	return req
 }
 
 // poller is what pollUntilApproved needs from the client (a seam for tests).
@@ -93,13 +146,41 @@ type poller interface {
 // A transient failure (network, 5xx, 429) is retried with a growing pause instead of
 // aborting a login that is still perfectly valid; five in a row give up.
 func pollUntilApproved(bg interface{ Done() <-chan struct{} }, cl poller, deviceCode string, interval, ttl time.Duration) (*api.TokenGrant, error) {
-	deadline := time.Now().Add(ttl)
+	grant, err := pollApproval(bg, cl, deviceCode, interval, time.Now().Add(ttl))
+	switch {
+	case err == nil:
+		return grant, nil
+	case errors.Is(err, errApprovalExpired):
+		return nil, fmt.Errorf("the code expired before it was approved; run `qube login` again")
+	case errors.Is(err, context.Canceled):
+		return nil, fmt.Errorf("interrupted")
+	}
+	return nil, fmt.Errorf("login failed: %w", err)
+}
+
+// How often a code waiting for approval is asked about (a login's, or an act-as grant's): the
+// server's interval, or the default when it names one under the minimum (variables so tests
+// can shorten them).
+var (
+	approvalPollMin     = 2 * time.Second
+	approvalPollDefault = 5 * time.Second
+)
+
+// errApprovalExpired is pollApproval's answer when the deadline passes with the code still
+// waiting.
+var errApprovalExpired = errors.New("the code expired before it was approved")
+
+// pollApproval asks every `interval` until the code is approved (the grant), denied or
+// otherwise refused (the server's *api.Error), the deadline passes (errApprovalExpired) or
+// bg is done (context.Canceled). A transient failure (network, 5xx, 429) is retried with a
+// growing pause; five in a row give up. `qube login` and `qube act-as` both wait this way.
+func pollApproval(bg interface{ Done() <-chan struct{} }, cl poller, deviceCode string, interval time.Duration, deadline time.Time) (*api.TokenGrant, error) {
 	pause := interval
 	failures := 0
 	for time.Now().Before(deadline) {
 		select {
 		case <-bg.Done():
-			return nil, fmt.Errorf("interrupted")
+			return nil, context.Canceled
 		case <-time.After(pause):
 		}
 		grant, err := cl.PollToken(deviceCode)
@@ -108,10 +189,12 @@ func pollUntilApproved(bg interface{ Done() <-chan struct{} }, cl poller, device
 			return grant, nil
 		case err == api.ErrPending:
 			pause, failures = interval, 0
+		case errors.Is(err, context.Canceled):
+			return nil, context.Canceled
 		case api.Retryable(err):
 			failures++
 			if failures >= 5 {
-				return nil, fmt.Errorf("login failed after %d attempts: %w", failures, err)
+				return nil, fmt.Errorf("gave up after %d attempts: %w", failures, err)
 			}
 			pause = interval * time.Duration(failures+1)
 			if e, ok := err.(*api.Error); ok && e.RetryAfter > 0 {
@@ -119,10 +202,10 @@ func pollUntilApproved(bg interface{ Done() <-chan struct{} }, cl poller, device
 			}
 			ui.Info("(%v; retrying in %s)", err, pause)
 		default:
-			return nil, fmt.Errorf("login failed: %w", err)
+			return nil, err
 		}
 	}
-	return nil, fmt.Errorf("the code expired before it was approved; run `qube login` again")
+	return nil, errApprovalExpired
 }
 
 func mustPath() string {
@@ -131,7 +214,7 @@ func mustPath() string {
 }
 
 func (c *ctx) logout() {
-	cl := c.cli()
+	cl := c.staffClient()
 	if cl.Token != "" {
 		if err := cl.Do("DELETE", "/api/cli/session", nil, nil, nil); err != nil {
 			ui.Info("(the server could not be told: %v -- the session is dropped locally; revoke it under CLI sessions in the dashboard)", err)
@@ -163,6 +246,11 @@ func (c *ctx) status() {
 			if cn, ok := s.DefaultConnections[s.DefaultApp]; ok {
 				out["default_connection"] = cn
 			}
+			out["actor"] = actorOf(s)
+			if s.AgentName != "" {
+				out["agent_name"] = s.AgentName
+			}
+			out["permissions"] = permissionList(s.Permissions)
 		}
 		out["hosts"] = hostList(c.cfg)
 		ui.PrintJSON(out)
@@ -177,8 +265,14 @@ func (c *ctx) status() {
 	}
 	fmt.Printf("Host:         %s\n", c.host)
 	fmt.Printf("User:         %s (%s)\n", s.UserEmail, s.Organization)
+	if s.Agent() {
+		fmt.Printf("Actor:        agent %q (the server holds it to an agent's limits)\n", s.AgentName)
+	}
 	fmt.Printf("Scope:        %s\n", s.Scope)
 	fmt.Printf("Access:       %s\n", s.AccessLabel())
+	if s.Staff() {
+		fmt.Printf("Staff:        %s\n", strings.Join(s.Permissions, " "))
+	}
 	app := "(none: run `qube use <app>`)"
 	switch {
 	case s.DefaultApp != "" && s.DefaultAppName != "":
@@ -223,11 +317,25 @@ func (c *ctx) whoami() {
 	u, _ := out.Data["user"].(map[string]interface{})
 	o, _ := out.Data["organization"].(map[string]interface{})
 	s, _ := out.Data["session"].(map[string]interface{})
+	who := str(u["email"])
+	if str(s["actor"]) == "agent" {
+		who = fmt.Sprintf("agent %q for %s", str(s["agent_name"]), who)
+	}
+	if str(s["kind"]) == "act_as" {
+		fmt.Printf("%s, acting as %s on %s (act-as grant: %s, %s, expires %v; reason %q)\n", who, str(o["name"]), c.host, reachLabel(str(s["scope"])), grantAccessLabel(str(s["access"])), s["expires_at"], str(s["reason"]))
+		return
+	}
 	access := "read and write"
 	if str(s["access"]) == "read_only" {
 		access = "read-only"
 	}
-	fmt.Printf("%s in %s on %s (scope: %v, %s, session %q expires %v)\n", str(u["email"]), str(o["name"]), c.host, s["scope"], access, str(s["name"]), s["expires_at"])
+	fmt.Printf("%s in %s on %s (scope: %v, %s, session %q expires %v)\n", who, str(o["name"]), c.host, s["scope"], access, str(s["name"]), s["expires_at"])
+	if perms := strs(s["permissions"]); len(perms) > 0 {
+		fmt.Printf("Staff: %s\n", strings.Join(perms, " "))
+		if eff := strs(s["effective_permissions"]); len(eff) < len(perms) {
+			fmt.Printf("Holding now: %s (less than approved: a role change, or staff access switched off)\n", orEmpty(strings.Join(eff, " "), "none"))
+		}
+	}
 }
 
 func (c *ctx) sessions(args []string) {
@@ -252,6 +360,26 @@ func (c *ctx) sessions(args []string) {
 		ui.PrintJSON(out.Data)
 		return
 	}
+	// The actor, kind and staff columns appear only when some session has them, so an
+	// ordinary account's list stays as it was.
+	var agents, grants, staff bool
+	for _, s := range out.Data {
+		agents = agents || str(s["actor"]) == "agent"
+		grants = grants || str(s["kind"]) == "act_as"
+		staff = staff || len(strs(s["permissions"])) > 0
+	}
+	header := []string{"", "ID", "NAME"}
+	if grants {
+		header = append(header, "KIND")
+	}
+	if agents {
+		header = append(header, "ACTOR")
+	}
+	header = append(header, "SCOPE", "ACCESS")
+	if staff {
+		header = append(header, "STAFF")
+	}
+	header = append(header, "EXPIRES", "STATUS", "LAST USED")
 	var rows [][]string
 	for _, s := range out.Data {
 		status := "active"
@@ -265,10 +393,29 @@ func (c *ctx) sessions(args []string) {
 			cur = "*"
 		}
 		access := "read-write"
-		if str(s["access"]) == "read_only" {
+		switch str(s["access"]) {
+		case "read_only":
 			access = "read-only"
+		case "configure":
+			access = "configure"
 		}
-		rows = append(rows, []string{cur, str(s["id"]), str(s["name"]), str(s["scope"]), access, status, str(s["last_used_at"])})
+		row := []string{cur, str(s["id"]), str(s["name"])}
+		if grants {
+			row = append(row, strings.Replace(orEmpty(str(s["kind"]), "login"), "_", "-", 1))
+		}
+		if agents {
+			actor := "person"
+			if str(s["actor"]) == "agent" {
+				actor = fmt.Sprintf("agent %q", str(s["agent_name"]))
+			}
+			row = append(row, actor)
+		}
+		row = append(row, str(s["scope"]), access)
+		if staff {
+			row = append(row, orEmpty(strings.Join(strs(s["permissions"]), ","), "-"))
+		}
+		row = append(row, str(s["expires_at"]), status, str(s["last_used_at"]))
+		rows = append(rows, row)
 	}
-	ui.Table(os.Stdout, []string{"", "ID", "NAME", "SCOPE", "ACCESS", "STATUS", "LAST USED"}, rows, "No sessions.")
+	ui.Table(os.Stdout, header, rows, "No sessions.")
 }

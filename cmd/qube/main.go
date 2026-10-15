@@ -32,6 +32,10 @@ type ctx struct {
 }
 
 func main() {
+	if len(os.Args) > 2 && os.Args[1] == "help" && os.Args[2] == "staff" {
+		staffUsage()
+		return
+	}
 	if len(os.Args) < 2 || os.Args[1] == "-h" || os.Args[1] == "--help" || os.Args[1] == "help" {
 		usage()
 		return
@@ -90,7 +94,7 @@ func main() {
 		yes:          yes,
 		connection:   connection,
 	}
-	bg, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	bg, stop := signalContext()
 	defer stop()
 	c.bg = bg
 	if len(args) == 0 {
@@ -132,11 +136,18 @@ func main() {
 		c.qb(args[1:])
 	case "api":
 		c.rawAPI(args[1:])
+	case "admin":
+		c.admin(args[1:])
 	case "completion":
 		completion(args[1:])
 	default:
 		ui.Usage("unknown command %q (try `qube help`)", args[0])
 	}
+}
+
+// signalContext is cancelled on Ctrl-C or SIGTERM: every command's requests carry it.
+func signalContext() (context.Context, context.CancelFunc) {
+	return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 }
 
 // parseTimeout reads "30" or "30s" or "2m"; empty or invalid means the default (60 s).
@@ -168,8 +179,10 @@ func usage() {
 	fmt.Print(`qube ` + api.Version + ` -- the QuBe Sync command line
 
 Account:
-  login [--name N] [--read-only]   connect this terminal (approve in the browser; no secrets typed);
-                                   --read-only asks for a session that can look but not change anything
+  login [--name N] [--read-only] [--agent NAME]
+                                   connect this terminal (approve in the browser; no secrets typed);
+                                   --read-only asks for a session that can look but not change anything;
+                                   --agent NAME says an AI agent will hold it (it can revoke only itself)
   status                           host, user, scope, access, defaults and expiry of the session (offline)
   whoami                           the same, confirmed by the server
   logout                           revoke this terminal's session
@@ -265,6 +278,57 @@ any app). Without a terminal, or under --json, such a request needs --yes. A rea
 Exit codes: 0 ok, 1 failed, 2 wrong usage, 130 interrupted.
 Config: ` + configPathForHelp() + ` (QUBE_CONFIG overrides). QUBE_NO_BROWSER=1 stops login opening a browser.
 The qb operation list is cached in ` + opsCacheDir() + ` (QUBE_CACHE_DIR overrides).
+`)
+}
+
+// staffUsage is `qube help staff` and `qube admin help`: the commands for QuBe Sync staff,
+// kept out of `qube help` so customers never wonder about them.
+func staffUsage() {
+	fmt.Print(`qube ` + api.Version + ` -- commands for QuBe Sync staff
+
+These work only for QuBe Sync staff: a session approved with staff permissions.
+
+Logging in:
+  login --admin                    ask for staff permissions (a person's staff session lasts 12 hours)
+  login --agent NAME [--admin]     a session for an AI agent; with --admin it asks for admin.read,
+                                   admin.read_customer_data, org.act and org.act_production, and its
+                                   person ticks which (4 hours). Give the agent its own QUBE_CONFIG,
+                                   ideally where it can't read yours.
+  status | sessions | whoami       who holds the session (a person or an agent), its staff
+                                   permissions and when it ends
+
+Monitoring, across every organization:
+  admin status [--check]                   service health; --check exits 1 when something needs attention
+  admin tail [--kind K,...] [--org ORG] [--production] [--since 10m] [--detail]
+                                           events as they happen (Ctrl-C stops, exit 130)
+  admin events [--kind K,...] [--org ORG] [--production] [--since 24h] [--after CURSOR] [--detail]
+  admin orgs [--search TEXT] [--page N]    |  admin org <id or exact name>
+  admin users [--search TEXT] [--page N]   |  admin user <id or email>
+  admin connections [--org ORG] [--app ID] [--type standard|realtime|simulated] [--stalled]
+  admin connection <id>
+  admin requests (--connection ID | --app ID | --org ORG) [--state S] [--webhook-state S]
+                 [--since 1h] [--limit N] [--after CURSOR]
+  admin request <id> [--xml]
+  admin runs (--org ORG | --connection ID | --state S | --stuck) [--limit N] [--after CURSOR]
+  admin run <id> [--events] [--io] [--events-after CURSOR]
+  admin jobs --state S [--queue Q] [--worker W] [--since 24h] [--limit N] [--before CURSOR] [--args]
+  admin feedback [--status new|fixed|wont_fix|all] [--subject S]
+  admin mcp-calls [--days 1|7|30]
+  admin audit [--org ORG] [--actor EMAIL] [--token SESSION] [--action A] [--since 7d] [--before CURSOR]
+  ORG is an organization's id or exact name. Customer data (--xml, --io, --events, --args,
+  --detail) is asked for explicitly and needs admin.read_customer_data.
+
+Grants and agents:
+  admin grants                     live act-as grants, and grants waiting for approval
+  admin grants revoke <id>         end one
+  admin agents                     agents' live sessions, and whether agent staff access is on
+  admin agents revoke <id> | revoke --all [--staff]
+                                   end an agent's session and its grants, or every agent's (with
+                                   --staff, every staff session and grant too, this one included)
+  admin agents disable | enable    the kill switch: every agent's staff access off, or back on
+
+--yes answers qube's own questions (a production write, a delete), for an agent's session too. It
+widens nothing: the server holds every agent to its limits, whatever --yes says.
 `)
 }
 
