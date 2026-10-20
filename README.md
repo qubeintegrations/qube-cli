@@ -162,6 +162,48 @@ Forwarding to http://localhost:3000/webhooks/qube. Ctrl-C to stop.
   new URL. You can listen from 10 machines per app; an 11th takes over the URL that was used least
   recently, says so, and that URL stops working.
 
+## Checking your webhook endpoint: `qube check webhooks`
+
+```bash
+qube check webhooks http://localhost:3000/webhooks/qube --operation orders --record 42
+```
+
+`qube check webhooks URL` sends signed test deliveries to your app's own webhook endpoint and grades the HTTP
+answers. `URL` is the base your app builds each webhook URL from (`QUBE_WEBHOOK_URL`). `--operation SLUG` is one of the
+operation slugs your webhook route maps, and `--record ID` is the id of a record in your app that keeps a
+connection (a shop, an account): `URL/connection/<ID>` is that connection's webhook URL. It signs with the app's
+webhook secret, fetched the way `qube env` fetches it and kept in memory: the secret is never printed, logged
+or written, and neither is anything your app answers. One request per check, each tied to a rule of QuBe
+Sync's integration rules:
+
+| Check | Sends | Passes when |
+| --- | --- | --- |
+| `bad-signature-401` | a run event with a wrong `v1` | 401 |
+| `stale-timestamp-401` | a correct signature over a timestamp 10 minutes old | 401 |
+| `raw-body-signature` | a correct signature over a body with unusual spacing, key order and `\u` escapes (`--operation`) | 2xx: the signature is over the raw bytes |
+| `unknown-operation-404` | a correct signature, to `URL/qube-check-unknown/1` | 404 |
+| `fast-2xx` | a run event to `URL/<--operation>/qube-check-5` | 2xx within 5 s |
+| `connection-event-2xx` | with `--record ID`, a `connection.connected` for another connection, to `URL/connection/<ID>` | 2xx within 5 s |
+
+```
+CHECK                  RULE                                   SENT                         EXPECTED   GOT         RESULT
+bad-signature-401      verify-signature                       wrong v1                     401        401 in 4ms  pass
+stale-timestamp-401    refuse-stale-timestamp                 t 10 min old                 401        200 in 3ms  FAIL
+...
+4 passed, 2 failed, 0 skipped.
+```
+
+- **Exit codes.** 1 when a check fails, with the reason under the table; a skipped check (`--operation` and
+  `--record` are what some need) isn't a failure. `--json` prints the same as data: `checks` (each with `rule`,
+  `path`, `expected`, `got`, `status`, `elapsed_ms`, `result` and `detail`), `summary` and `ok`.
+- **The deliveries are fake.** Their ids, references and delivery ids say `qube-check`, and no record of your
+  app's matches them, so an app that is right logs and skips them. Each request carries `X-QUBE-Check: <check>`.
+- **Where it sends.** It refuses QuBe Sync's own host, a `qube listen` relay URL included (QuBe Sync serves
+  nothing there: check the `--forward-to` URL instead). A URL that isn't `localhost`, `127.0.0.1` or `[::1]`
+  needs `--yes`, and says so. A production app needs `--production`. A redirect is reported and never followed,
+  and a request with no answer in 10 s fails. It needs a read and write session, not an act-as grant, as
+  `qube env` does.
+
 ## Production apps
 
 In a production app, every request that changes something asks first, naming the app: every

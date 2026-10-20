@@ -149,6 +149,8 @@ func main() {
 		c.simulator(args[1:])
 	case "workflows":
 		c.workflows(args[1:])
+	case "check":
+		c.check(args[1:])
 	case "qb", "quickbooks":
 		c.qb(args[1:])
 	case "api":
@@ -297,6 +299,16 @@ Webhooks on this machine (sandbox apps; as the default app, or --app):
                                    (--json: one object per line); --write-env .env stores the URL as
                                    QUBE_WEBHOOK_URL; --forget deletes this machine's URL (alone: only that);
                                    Ctrl-C stops
+
+Checking your integration (as the default app, or --app):
+  check webhooks URL [--operation SLUG] [--record ID] [--production]
+                                   sends signed test deliveries to your app's webhook endpoint (URL is
+                                   QUBE_WEBHOOK_URL) and grades the answers: a wrong signature and a stale
+                                   timestamp get 401, a signed body with unusual spacing is accepted, an
+                                   unknown operation gets 404, a run event (--operation SLUG) and a connection
+                                   event (--record ID) get a 2xx within 5 s. Exits 1 when a check fails.
+                                   The webhook secret signs them and is never shown; not for QuBe Sync's own
+                                   host, and a URL that isn't on this machine needs --yes
 
 Other:
   completion bash|zsh|fish         shell completion script (eval or save it)
