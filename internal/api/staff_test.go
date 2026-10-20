@@ -228,11 +228,11 @@ func TestStartDevicePayloads(t *testing.T) {
 		{DeviceRequest{ClientName: "n", Access: "read_write"},
 			map[string]interface{}{"client_name": "n", "access": "read_write"}},
 		{DeviceRequest{ClientName: "n", Access: "read_write", Permissions: StaffPermissions},
-			map[string]interface{}{"client_name": "n", "access": "read_write", "permissions": []interface{}{"admin.read", "admin.read_customer_data", "admin.read_audit", "org.act", "org.act_production", "agents.manage"}}},
+			map[string]interface{}{"client_name": "n", "access": "read_write", "permissions": []interface{}{"admin.read", "admin.read_customer_data", "admin.read_audit", "org.act", "org.act_production", "agents.manage", "builds.manage"}}},
 		{DeviceRequest{ClientName: "n", Access: "read_write", AgentName: "Claude Code"},
 			map[string]interface{}{"client_name": "n", "access": "read_write", "actor": "agent", "agent_name": "Claude Code"}},
 		{DeviceRequest{ClientName: "n", Access: "read_only", AgentName: "Claude Code", Permissions: AgentPermissions},
-			map[string]interface{}{"client_name": "n", "access": "read_only", "actor": "agent", "agent_name": "Claude Code", "permissions": []interface{}{"admin.read", "admin.read_customer_data", "org.act", "org.act_production"}}},
+			map[string]interface{}{"client_name": "n", "access": "read_only", "actor": "agent", "agent_name": "Claude Code", "permissions": []interface{}{"admin.read", "admin.read_customer_data", "org.act", "org.act_production", "builds.manage"}}},
 	}
 	for _, tc := range cases {
 		if _, err := c.StartDevice(tc.req); err != nil {

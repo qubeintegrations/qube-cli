@@ -79,6 +79,14 @@ func (c *ctx) admin(args []string) {
 		c.adminGrants(cl, rest)
 	case "agents":
 		c.adminAgents(cl, rest)
+	case "integration-requests":
+		c.adminIntegrationRequests(cl, rest)
+	case "integration-request":
+		c.adminIntegrationRequest(cl, rest)
+	case "builds":
+		c.adminBuilds(cl, rest)
+	case "build":
+		c.adminBuild(cl, rest)
 	default:
 		ui.Usage("unknown admin command %q (try `qube admin help`)", sub)
 	}

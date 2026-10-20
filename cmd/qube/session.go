@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"os/user"
@@ -55,6 +56,13 @@ func (c *ctx) login(args []string) {
 	cl := api.New(c.host, c.timeout)
 	cl.Ctx = c.bg
 	start, err := cl.StartDevice(req)
+	if asked, dropped := offeredPermissions(err, req.Permissions); asked != nil {
+		// a host that predates a permission (builds.manage, say) refuses the whole login and
+		// lists what it grants: ask again for those
+		ui.Info("(%s doesn't offer %s yet; asking for the rest)", c.host, strings.Join(dropped, ", "))
+		req.Permissions = asked
+		start, err = cl.StartDevice(req)
+	}
 	if err != nil {
 		fail(fmt.Errorf("starting login at %s: %w", c.host, err))
 	}
@@ -145,6 +153,42 @@ func loginRequest(readOnly, admin bool, agent string) api.DeviceRequest {
 		}
 	}
 	return req
+}
+
+// offeredPermissions reads a refusal of a login's permissions: the asked-for permissions the
+// host grants, and the ones it doesn't. The host's list is the error's `permissions` when it
+// sends one; a host that predates that field names them only in its message ("permissions are
+// some of: ..."), which is read instead. Nil when err isn't that refusal, or when nothing would
+// be left to ask for or nothing is dropped.
+func offeredPermissions(err error, asked []string) (offered, dropped []string) {
+	var e *api.Error
+	if !errors.As(err, &e) || e.Status != http.StatusBadRequest || e.Code != "invalid_request" {
+		return nil, nil
+	}
+	granted := e.Permissions
+	if len(granted) == 0 {
+		const lead = "permissions are some of: "
+		i := strings.Index(e.Message, lead)
+		if i < 0 {
+			return nil, nil
+		}
+		granted = strings.Split(e.Message[i+len(lead):], ",")
+	}
+	listed := map[string]bool{}
+	for _, p := range granted {
+		listed[strings.TrimSpace(p)] = true
+	}
+	for _, p := range asked {
+		if listed[p] {
+			offered = append(offered, p)
+		} else {
+			dropped = append(dropped, p)
+		}
+	}
+	if len(offered) == 0 || len(dropped) == 0 {
+		return nil, nil
+	}
+	return offered, dropped
 }
 
 // poller is what pollUntilApproved needs from the client (a seam for tests).

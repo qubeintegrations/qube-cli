@@ -63,6 +63,9 @@ type Error struct {
 	Body       string
 	RetryAfter int  // seconds, from a 429's Retry-After header (0 if none)
 	ActAs      bool // the request carried an act-as grant's token
+	// Permissions is what a refusal of a login's permissions says the host grants (the
+	// error's `permissions`); nil from a host that predates it, and from any other refusal.
+	Permissions []string
 }
 
 func (e *Error) Error() string {
@@ -332,11 +335,17 @@ func errorFrom(res *http.Response, data []byte, path string) *Error {
 		Error struct {
 			Code    string `json:"code"`
 			Message string `json:"message"`
+			// read apart, so a value that isn't a list of strings can't lose the code and message
+			Permissions json.RawMessage `json:"permissions"`
 		} `json:"error"`
 		Errors json.RawMessage `json:"errors"`
 	}
 	if json.Unmarshal(data, &env) == nil {
 		e.Code, e.Message = env.Error.Code, env.Error.Message
+		var granted []string
+		if len(env.Error.Permissions) > 0 && json.Unmarshal(env.Error.Permissions, &granted) == nil {
+			e.Permissions = granted
+		}
 		if e.Message == "" && len(env.Errors) > 0 {
 			e.Message = flattenErrors(env.Errors)
 			var coded struct {
@@ -468,10 +477,12 @@ type TokenGrant struct {
 }
 
 // The staff permissions `qube login --admin` asks for (every one a CLI session can hold), and
-// the most an AI agent's session can hold (`qube login --agent NAME --admin`).
+// the most an AI agent's session can hold (`qube login --agent NAME --admin`). builds.manage is
+// the "build it free" pipeline's: starting a build, saving its manifest, moving its stages and
+// setting the request's kit and app. Approving a gate is never a permission a session holds.
 var (
-	StaffPermissions = []string{"admin.read", "admin.read_customer_data", "admin.read_audit", "org.act", "org.act_production", "agents.manage"}
-	AgentPermissions = []string{"admin.read", "admin.read_customer_data", "org.act", "org.act_production"}
+	StaffPermissions = []string{"admin.read", "admin.read_customer_data", "admin.read_audit", "org.act", "org.act_production", "agents.manage", "builds.manage"}
+	AgentPermissions = []string{"admin.read", "admin.read_customer_data", "org.act", "org.act_production", "builds.manage"}
 )
 
 // DeviceRequest is what a login asks for. Access is read_only or read_write; Permissions are

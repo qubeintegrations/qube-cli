@@ -1070,25 +1070,14 @@ func (c *ctx) workflows(args []string) {
 			q = url.Values{"version": {*version}}
 		}
 		cl, _ := c.appClient()
-		if ui.JSON {
-			var out struct {
-				Data interface{} `json:"data"`
-			}
-			if err := cl.Do("GET", v2path("/workflows/{key}/usage", key), q, nil, &out); err != nil {
-				fail(err)
-			}
-			ui.PrintJSON(out.Data)
-			return
-		}
-		body, status, err := cl.Raw("GET", v2path("/workflows/{key}/usage.md", key), q, nil)
-		if err != nil {
-			fail(err)
-		}
-		if status < 200 || status > 299 {
-			os.Stderr.Write(body)
-			os.Exit(ui.ExitFailure)
-		}
-		ui.PrintRaw(body)
+		printUsage(usageRoutes{
+			json: func(out interface{}) error {
+				return cl.Do("GET", v2path("/workflows/{key}/usage", key), q, nil, out)
+			},
+			markdown: func() ([]byte, int, error) {
+				return cl.Raw("GET", v2path("/workflows/{key}/usage.md", key), q, nil)
+			},
+		})
 	case "schema":
 		cl, _ := c.appClient()
 		var out interface{}
@@ -1097,12 +1086,31 @@ func (c *ctx) workflows(args []string) {
 		}
 		ui.PrintJSON(out)
 	case "templates":
+		fs := flag.NewFlagSet("workflows templates", flag.ExitOnError)
+		withUsage := fs.Bool("usage", false, "the usage contract the template will have once installed, instead of its chart")
+		parseAnywhere(fs, args[1:])
+		if *withUsage {
+			if fs.NArg() < 1 {
+				ui.Usage("usage: qube workflows templates KEY --usage")
+			}
+			key := fs.Arg(0)
+			cl, _ := c.appClient()
+			printUsage(usageRoutes{
+				json: func(out interface{}) error {
+					return cl.Do("GET", v2path("/workflow-templates/{key}/usage", key), nil, nil, out)
+				},
+				markdown: func() ([]byte, int, error) {
+					return cl.Raw("GET", v2path("/workflow-templates/{key}/usage.md", key), nil, nil)
+				},
+			})
+			return
+		}
 		cl, _ := c.appClient()
-		if len(args) >= 2 {
+		if fs.NArg() >= 1 {
 			var out struct {
 				Data map[string]interface{} `json:"data"`
 			}
-			if err := cl.Do("GET", v2path("/workflow-templates/{key}", args[1]), nil, nil, &out); err != nil {
+			if err := cl.Do("GET", v2path("/workflow-templates/{key}", fs.Arg(0)), nil, nil, &out); err != nil {
 				fail(err)
 			}
 			ui.PrintJSON(out.Data)

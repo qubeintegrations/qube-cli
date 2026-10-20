@@ -18,6 +18,7 @@ qube requests discard <connection> <id>
 qube listen --forward-to http://localhost:3000/webhooks/qube --write-env .env   # webhooks reach your local app
 qube simulator faults <connection> --next 3100
 qube simulator faults <connection> --next lost   # applied, then never answered: ends timed_out (--next ok clears)
+qube workflows templates add_transaction --usage             # what the template asks and ends in, before you install it
 qube workflows install add_transaction --publish --replace   # safe to repeat; installs the resolve and ensure it calls too
 qube workflows push ./chart.json --publish
 qube api GET /connections           # any v2 path, as the current app
@@ -201,6 +202,41 @@ qube act-as --end
   rate limit.
 - The grant lives in the config file under the host's session (`acting_as`, or `pending_act_as`
   while it waits for approval), with the same 0600 permissions as the session.
+
+### Building integrations ("build it free")
+
+A prospect's request becomes a build: a plan (the manifest), stages the server runs or an agent
+moves, and gates a person approves in the browser. `qube admin` reads and drives it. Reading needs
+`admin.read` (a request's text also `admin.read_customer_data`); changing anything needs
+`builds.manage`, which `qube login --admin` asks for and an agent's session can hold. Nothing here
+approves a gate or reopens a build: that is the admin page's, for a person.
+
+```bash
+qube admin integration-requests --status submitted         # the requests waiting for a build
+qube admin integration-request REQUEST_ID                  # what they sent, the kit, the app, the latest build
+qube admin builds start REQUEST_ID                         # start build n + 1
+qube admin build BUILD_ID                                  # stages, gates, what's next, the test company's scenarios
+qube admin build BUILD_ID manifest set plan.json           # save the plan; every problem prints as path: message
+qube admin integration-request REQUEST_ID set-app APP_ID   # the sandbox app it installs and tests in
+qube admin build BUILD_ID stage install done --output '{"installed": ["record_payment"]}'
+qube admin build BUILD_ID test-company --wait              # runs on the server; each scenario prints as it ends
+qube admin integration-request REQUEST_ID kit files --out ./kit
+qube admin integration-request REQUEST_ID kit set --mapping-out out.rb --mapping-in in.rb
+```
+
+- `manifest set FILE|-` sends the file as written. A 422 prints the server's message and then each
+  problem as `path: message` (under `--json`, the server's body is on stdout).
+- `test-company --wait[=10m]` reads the build every few seconds until the stage is done or failed,
+  prints each scenario's result once as it lands, and exits 1 on a failure or when the wait runs
+  out (the stage keeps running on the server). The global `--timeout D` sets the limit too. Under
+  `--json` the results go to stderr and stdout holds the build.
+- `kit files --out DIR` writes the generated kit's files under `DIR`, creating directories. It
+  refuses an absolute path or one with `..`, a file that is a link or a directory, and any
+  existing file without `--force`, and it checks every path before it writes the first.
+- `kit set` sends only the fields you give (`--stack`, `--http`, `--mapping-out FILE`,
+  `--mapping-in FILE`); an empty value clears one.
+- `stage STAGE running|done|failed [--error MSG] [--output JSON|@FILE]`: `failed` needs an error,
+  and the stage keeps the output it has when `--output` is left out.
 
 ## Install
 

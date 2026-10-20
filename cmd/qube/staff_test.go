@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -150,8 +151,15 @@ func TestLoginRequestByFlags(t *testing.T) {
 			t.Errorf("read-only %v admin %v agent %q: %+v, want %+v", tc.readOnly, tc.admin, tc.agent, got, tc.want)
 		}
 	}
-	if len(api.AgentPermissions) != 4 || contains(api.AgentPermissions, "admin.read_audit") || contains(api.AgentPermissions, "agents.manage") {
+	if len(api.AgentPermissions) != 5 || contains(api.AgentPermissions, "admin.read_audit") || contains(api.AgentPermissions, "agents.manage") {
 		t.Fatalf("the agent ceiling is wrong: %v", api.AgentPermissions)
+	}
+	// builds.manage is offered to a person and to an agent; approving a gate is a permission
+	// no session is ever asked for
+	for _, list := range [][]string{api.StaffPermissions, api.AgentPermissions} {
+		if !contains(list, "builds.manage") || contains(list, "admin.write") {
+			t.Errorf("%v: want builds.manage and never admin.write", list)
+		}
 	}
 }
 
@@ -175,7 +183,7 @@ func TestLoginAgentAdminStoresTheActor(t *testing.T) {
 	setJSON(t, false)
 	out := captureStdout(t, func() { c.login([]string{"--agent", "Claude Code", "--admin", "--name", "agent box"}) })
 	want := map[string]interface{}{"client_name": "agent box", "access": "read_write", "actor": "agent", "agent_name": "Claude Code",
-		"permissions": []interface{}{"admin.read", "admin.read_customer_data", "org.act", "org.act_production"}}
+		"permissions": []interface{}{"admin.read", "admin.read_customer_data", "org.act", "org.act_production", "builds.manage"}}
 	if !reflect.DeepEqual(device, want) {
 		t.Fatalf("device body = %v", device)
 	}
@@ -185,6 +193,153 @@ func TestLoginAgentAdminStoresTheActor(t *testing.T) {
 	}
 	if !strings.Contains(out, `as an agent session for garrett@qubesync.com ("Claude Code"`) || !strings.Contains(out, "Staff: admin.read\n") || !strings.Contains(out, "This session ends at") {
 		t.Fatalf("output = %q", out)
+	}
+}
+
+// A host that predates a permission this CLI asks for (builds.manage, say) refuses the whole
+// login and lists what it grants; qube asks again for the rest instead of failing. This one is
+// an older host, which lists them only in its message.
+func TestLoginAsksAgainForWhatTheHostOffers(t *testing.T) {
+	var asked [][]interface{}
+	c := staffCtx(t, true, map[string]http.HandlerFunc{
+		"/api/cli/device": func(w http.ResponseWriter, r *http.Request) {
+			var body map[string]interface{}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			asked = append(asked, body["permissions"].([]interface{}))
+			if len(asked) == 1 {
+				writeJSON(w, 400, map[string]interface{}{"error": map[string]string{"code": "invalid_request",
+					"message": "permissions are some of: admin.read, admin.read_customer_data, admin.read_audit, org.act, org.act_production, agents.manage"}})
+				return
+			}
+			writeJSON(w, 200, map[string]interface{}{"device_code": "qcd_login", "user_code": "HQ7M-2KDP",
+				"verification_uri_complete": "https://qubesync.example/app/cli/activate?code=HQ7M-2KDP", "expires_in": 600, "interval": 0})
+		},
+		"/api/cli/token": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, 200, map[string]interface{}{"token": "qct_staff2", "expires_at": time.Now().Add(12 * time.Hour).UTC().Format(time.RFC3339),
+				"scope": "sandbox", "access": "read_write", "kind": "login", "actor": "human", "permissions": []string{"admin.read", "agents.manage"},
+				"user": map[string]string{"email": "garrett@qubesync.com"}, "organization": map[string]string{"id": "o", "name": "QuBe Sync"}})
+		},
+	})
+	setJSON(t, false)
+	var out string
+	note := captureStderr(t, func() { out = captureStdout(t, func() { c.login([]string{"--admin", "--name", "laptop"}) }) })
+	if len(asked) != 2 || !containsAny(asked[0], "builds.manage") || containsAny(asked[1], "builds.manage") || len(asked[1]) != len(asked[0])-1 {
+		t.Fatalf("asked %v", asked)
+	}
+	if !strings.Contains(note, "doesn't offer builds.manage yet; asking for the rest") || !strings.Contains(out, "Staff: admin.read agents.manage") {
+		t.Fatalf("stderr %q, stdout %q", note, out)
+	}
+}
+
+// The same refusal from a host that sends the `permissions` list: qube asks again for what the
+// list grants, and doesn't need the message to say so (this one doesn't).
+func TestLoginAsksAgainForTheHostsPermissionsList(t *testing.T) {
+	var asked [][]interface{}
+	c := staffCtx(t, true, map[string]http.HandlerFunc{
+		"/api/cli/device": func(w http.ResponseWriter, r *http.Request) {
+			var body map[string]interface{}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			asked = append(asked, body["permissions"].([]interface{}))
+			if len(asked) == 1 {
+				writeJSON(w, 400, map[string]interface{}{"error": map[string]interface{}{"code": "invalid_request",
+					"message":     "some of those permissions aren't granted here",
+					"permissions": []string{"admin.read", "admin.read_customer_data", "admin.read_audit", "org.act", "org.act_production", "agents.manage"}}})
+				return
+			}
+			writeJSON(w, 200, map[string]interface{}{"device_code": "qcd_login", "user_code": "HQ7M-2KDP",
+				"verification_uri_complete": "https://qubesync.example/app/cli/activate?code=HQ7M-2KDP", "expires_in": 600, "interval": 0})
+		},
+		"/api/cli/token": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, 200, map[string]interface{}{"token": "qct_staff3", "expires_at": time.Now().Add(12 * time.Hour).UTC().Format(time.RFC3339),
+				"scope": "sandbox", "access": "read_write", "kind": "login", "actor": "human", "permissions": []string{"admin.read", "agents.manage"},
+				"user": map[string]string{"email": "garrett@qubesync.com"}, "organization": map[string]string{"id": "o", "name": "QuBe Sync"}})
+		},
+	})
+	setJSON(t, false)
+	var out string
+	note := captureStderr(t, func() { out = captureStdout(t, func() { c.login([]string{"--admin", "--name", "laptop"}) }) })
+	if len(asked) != 2 || !containsAny(asked[0], "builds.manage") || containsAny(asked[1], "builds.manage") || len(asked[1]) != len(asked[0])-1 {
+		t.Fatalf("asked %v", asked)
+	}
+	if !strings.Contains(note, "doesn't offer builds.manage yet; asking for the rest") || !strings.Contains(out, "Staff: admin.read agents.manage") {
+		t.Fatalf("stderr %q, stdout %q", note, out)
+	}
+}
+
+// The structured list is preferred over the message, and the message is only the fallback when
+// there is no list.
+func TestOfferedPermissionsPrefersTheList(t *testing.T) {
+	asked := []string{"admin.read", "org.act", "builds.manage"}
+	message := "permissions are some of: admin.read, org.act, builds.manage"
+	refusal := func(status int, code, message string, list []string) error {
+		return &api.Error{Status: status, Code: code, Message: message, Permissions: list}
+	}
+
+	// the list wins over a message that says otherwise
+	offered, dropped := offeredPermissions(refusal(400, "invalid_request", message, []string{"admin.read", "org.act"}), asked)
+	if !reflect.DeepEqual(offered, []string{"admin.read", "org.act"}) || !reflect.DeepEqual(dropped, []string{"builds.manage"}) {
+		t.Fatalf("list beside a message: offered %v, dropped %v", offered, dropped)
+	}
+	// a message that isn't in the older wording doesn't matter when there is a list
+	offered, dropped = offeredPermissions(refusal(400, "invalid_request", "unknown permission", []string{"builds.manage", "org.act"}), asked)
+	if !reflect.DeepEqual(offered, []string{"org.act", "builds.manage"}) || !reflect.DeepEqual(dropped, []string{"admin.read"}) {
+		t.Fatalf("list without the old wording: offered %v, dropped %v", offered, dropped)
+	}
+	// no list: the message is read, as an older host sends it
+	offered, dropped = offeredPermissions(refusal(400, "invalid_request", "permissions are some of: admin.read", nil), asked)
+	if !reflect.DeepEqual(offered, []string{"admin.read"}) || !reflect.DeepEqual(dropped, []string{"org.act", "builds.manage"}) {
+		t.Fatalf("message only: offered %v, dropped %v", offered, dropped)
+	}
+	// an empty list is no list
+	offered, dropped = offeredPermissions(refusal(400, "invalid_request", "permissions are some of: admin.read", []string{}), asked)
+	if !reflect.DeepEqual(offered, []string{"admin.read"}) || !reflect.DeepEqual(dropped, []string{"org.act", "builds.manage"}) {
+		t.Fatalf("empty list: offered %v, dropped %v", offered, dropped)
+	}
+	// nothing to ask again with, or nothing dropped, or not this refusal at all
+	for name, err := range map[string]error{
+		"all of them granted": refusal(400, "invalid_request", "", append([]string{"x"}, asked...)),
+		"none of them":        refusal(400, "invalid_request", "", []string{"admin.write"}),
+		"another status":      refusal(403, "invalid_request", "", []string{"admin.read"}),
+		"another code":        refusal(400, "staff_access_disabled", "", []string{"admin.read"}),
+		"no list, no wording": refusal(400, "invalid_request", "access is read_only or read_write", nil),
+	} {
+		if offered, dropped := offeredPermissions(err, asked); offered != nil || dropped != nil {
+			t.Errorf("%s: offered %v, dropped %v", name, offered, dropped)
+		}
+	}
+}
+
+func containsAny(list []interface{}, want string) bool {
+	for _, v := range list {
+		if v == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestOfferedPermissions(t *testing.T) {
+	refusal := func(status int, code, message string) error {
+		return &api.Error{Status: status, Code: code, Message: message}
+	}
+	list := "permissions are some of: admin.read, org.act"
+	asked := []string{"admin.read", "org.act", "builds.manage"}
+	offered, dropped := offeredPermissions(refusal(400, "invalid_request", list), asked)
+	if !reflect.DeepEqual(offered, []string{"admin.read", "org.act"}) || !reflect.DeepEqual(dropped, []string{"builds.manage"}) {
+		t.Fatalf("offered %v, dropped %v", offered, dropped)
+	}
+	for name, err := range map[string]error{
+		"no error":            nil,
+		"another error":       errors.New("boom"),
+		"another status":      refusal(403, "invalid_request", list),
+		"another code":        refusal(400, "staff_access_disabled", list),
+		"another message":     refusal(400, "invalid_request", "access is read_only or read_write"),
+		"all of them offered": refusal(400, "invalid_request", list+", builds.manage"),
+		"none of them":        refusal(400, "invalid_request", "permissions are some of: admin.write"),
+	} {
+		if offered, dropped := offeredPermissions(err, asked); offered != nil || dropped != nil {
+			t.Errorf("%s: offered %v, dropped %v", name, offered, dropped)
+		}
 	}
 }
 
@@ -211,7 +366,7 @@ func TestStatusShowsStaffAndTheGrant(t *testing.T) {
 		t.Fatal(err)
 	}
 	acting, _ := got["acting_as"].(map[string]interface{})
-	if got["actor"] != "agent" || got["agent_name"] != "Claude Code" || len(got["permissions"].([]interface{})) != 6 || acting["access"] != "configure" {
+	if got["actor"] != "agent" || got["agent_name"] != "Claude Code" || len(got["permissions"].([]interface{})) != len(api.StaffPermissions) || acting["access"] != "configure" {
 		t.Fatalf("json = %v", got)
 	}
 	if strings.Contains(out, "qct_") {

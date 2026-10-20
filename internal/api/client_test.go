@@ -137,6 +137,48 @@ func TestErrorEnvelopes(t *testing.T) {
 	}
 }
 
+// A login's refusal of its permissions carries the list the host grants beside the message. The
+// list is read apart from the code and message: a value that isn't a list of strings leaves
+// both intact, and an answer without one has none.
+func TestErrorCarriesTheLoginPermissionsList(t *testing.T) {
+	cases := []struct {
+		name, body  string
+		wantList    []string
+		wantMessage string
+	}{
+		{"a list", `{"error":{"code":"invalid_request","message":"permissions are some of: admin.read, org.act","permissions":["admin.read","org.act"]}}`,
+			[]string{"admin.read", "org.act"}, "permissions are some of: admin.read, org.act"},
+		{"an older host", `{"error":{"code":"invalid_request","message":"permissions are some of: admin.read, org.act"}}`,
+			nil, "permissions are some of: admin.read, org.act"},
+		{"not a list", `{"error":{"code":"invalid_request","message":"permissions are some of: admin.read","permissions":"admin.read"}}`,
+			nil, "permissions are some of: admin.read"},
+		{"a list of other things", `{"error":{"code":"invalid_request","message":"permissions are some of: admin.read","permissions":["admin.read",7]}}`,
+			nil, "permissions are some of: admin.read"},
+		{"null", `{"error":{"code":"invalid_request","message":"access is read_only or read_write","permissions":null}}`,
+			nil, "access is read_only or read_write"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, _ := server(t, func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(400)
+				_, _ = w.Write([]byte(tc.body))
+			})
+			c := New(srv.URL, 0)
+			_, err := c.StartDevice(DeviceRequest{ClientName: "t", Access: "read_write", Permissions: []string{"admin.read"}})
+			var e *Error
+			if !errors.As(err, &e) {
+				t.Fatalf("expected *Error, got %v", err)
+			}
+			if e.Status != 400 || e.Code != "invalid_request" || e.Message != tc.wantMessage {
+				t.Fatalf("got %+v", e)
+			}
+			if strings.Join(e.Permissions, ",") != strings.Join(tc.wantList, ",") || (e.Permissions == nil) != (tc.wantList == nil) {
+				t.Fatalf("Permissions = %#v, want %#v", e.Permissions, tc.wantList)
+			}
+		})
+	}
+}
+
 func TestPollToken(t *testing.T) {
 	calls := 0
 	srv, _ := server(t, func(w http.ResponseWriter, r *http.Request) {

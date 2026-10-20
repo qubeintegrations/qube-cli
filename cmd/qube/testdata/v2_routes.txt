@@ -12,6 +12,8 @@ GET /connections/{connection_id}/workflow-runs/{run_id}
 GET /connections/{connection_id}/workflow-runs/{run_id}/events
 GET /workflow-templates
 GET /workflow-templates/{key}
+GET /workflow-templates/{key}/usage
+GET /workflow-templates/{key}/usage.md
 GET /workflows
 GET /workflows/schema
 GET /workflows/schema.json

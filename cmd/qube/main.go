@@ -28,6 +28,7 @@ type ctx struct {
 	cfg          *config.File
 	bg           context.Context
 	yes          bool     // --yes: answer a confirmation (production writes, deletes) for a script
+	timeoutSet   bool     // --timeout was given (not just QUBE_TIMEOUT): a waiting command's limit too
 	connection   string   // --connection: the connection a command acts on, when it doesn't name one
 	appCache     *api.App // the app this command acts as, once looked up
 
@@ -89,6 +90,7 @@ func main() {
 	if host == "" {
 		host = os.Getenv("QUBE_HOST")
 	}
+	timeoutSet := timeout != ""
 	if timeout == "" {
 		timeout = os.Getenv("QUBE_TIMEOUT")
 	}
@@ -97,6 +99,7 @@ func main() {
 		hostExplicit: host != "",
 		app:          app,
 		timeout:      parseTimeout(timeout),
+		timeoutSet:   timeoutSet,
 		cfg:          cfg,
 		yes:          yes,
 		connection:   connection,
@@ -272,7 +275,9 @@ may be left out: it is then --connection, or the default from ` + "`qube use --c
   workflows usage KEY [--version V] | --all                 Markdown docs for the chart's input/output;
                                    --all: every workflow's, one after another (--json: [{key, usage}])
   workflows schema                                          the chart JSON Schema
-  workflows templates [KEY]                                 shipped charts ready to install
+  workflows templates [KEY [--usage]]                       shipped charts ready to install
+                                   KEY --usage: the usage contract it will have once installed (what it asks, what it
+                                   ends in), printed as "workflows usage" prints one (--json: the contract as JSON)
   workflows install KEY [--publish] [--notes TEXT] [--as NEW_KEY] [--replace]
                                    --replace gives a workflow the app already has the template's chart
   workflows run KEY [--input JSON|@file] [--version V] [--webhook-url U] [--wait]
@@ -337,11 +342,12 @@ func staffUsage() {
 These work only for QuBe Sync staff: a session approved with staff permissions.
 
 Logging in:
-  login --admin                    ask for staff permissions (a person's staff session lasts 12 hours)
+  login --admin                    ask for staff permissions, builds.manage among them (a person's staff
+                                   session lasts 12 hours)
   login --agent NAME [--admin]     a session for an AI agent; with --admin it asks for admin.read,
-                                   admin.read_customer_data, org.act and org.act_production, and its
-                                   person ticks which (4 hours). Give the agent its own QUBE_CONFIG,
-                                   ideally where it can't read yours.
+                                   admin.read_customer_data, org.act, org.act_production and
+                                   builds.manage, and its person ticks which (4 hours). Give the
+                                   agent its own QUBE_CONFIG, ideally where it can't read yours.
   status | sessions | whoami       who holds the session (a person or an agent), its staff
                                    permissions and when it ends
 
@@ -365,6 +371,32 @@ Monitoring, across every organization (always with the staff session, never an a
   admin audit [--org ORG] [--actor EMAIL] [--token SESSION] [--action A] [--since 7d] [--before CURSOR]
   ORG is an organization's id or exact name. Customer data (--xml, --io, --events, --args,
   --detail) is asked for explicitly and needs admin.read_customer_data.
+
+Building integrations ("build it free"; reading needs admin.read, a request's text also
+admin.read_customer_data, changing anything builds.manage -- which an agent's session can hold):
+  admin integration-requests [--status submitted|building|delivered] [--page N] [--page-size N]
+  admin integration-request ID                       what they sent, the kit, the app, the latest build
+  admin integration-request ID set-app APP_ID        the sandbox app the build installs and tests in
+  admin integration-request ID kit                   the kit's stack, HTTP library and mappings
+  admin integration-request ID kit set [--stack S] [--http H] [--mapping-out FILE] [--mapping-in FILE]
+                                   only the fields you give; an empty value clears one
+  admin integration-request ID kit files --out DIR [--force]
+                                   the generated kit's files, written under DIR: never outside it
+                                   (an absolute path or one with .. is refused), and no file
+                                   overwritten without --force
+  admin integration-request ID builds                its builds, newest first
+  admin builds start REQUEST_ID                      start build n+1 (it begins with the last plan)
+  admin build ID                                     stages, gates, what's next and the test company's scenarios
+  admin build ID manifest                            the plan, as JSON
+  admin build ID manifest set FILE|-                 save the plan; a 422 prints every problem as path: message
+  admin build ID stage STAGE running|done|failed [--error MSG] [--output JSON|@FILE]
+                                   STAGE: plan, install, test_company (or test-company), code, video
+  admin build ID test-company [--wait[=10m]]         run the test company on the server; --wait reads the
+                                   build every few seconds, prints each scenario's result as it
+                                   lands, and exits 1 when one fails or the wait runs out (--timeout D
+                                   sets the limit too). Under --json, results go to stderr and stdout
+                                   holds the build at the end.
+  Gates are approved, and builds reopened, only on the admin page in a browser: no session holds that.
 
 Acting in a customer's organization:
   act-as ORG --reason R [--for 60m] [--production] [--access read_only|configure|read_write]

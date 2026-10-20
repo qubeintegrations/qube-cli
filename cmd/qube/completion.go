@@ -16,7 +16,7 @@ var commandTree = map[string][]string{
 	"requests":    {"list", "show", "pages", "tail", "discard"},
 	"listen":      {"--forward-to", "--write-env", "--forget"},
 	"simulator":   {"show", "reset", "sync", "faults"},
-	"workflows":   {"list", "show", "push", "validate", "publish", "unpublish", "delete", "versions", "usage", "schema", "templates", "install", "run", "runs", "decide", "cancel", "delete-run"},
+	"workflows":   {"list", "show", "push", "validate", "publish", "unpublish", "delete", "versions", "usage", "schema", "templates", "install", "run", "runs", "decide", "cancel", "delete-run", "--usage"},
 	"api":         {"GET", "POST", "PUT", "PATCH", "DELETE"},
 	"completion":  {"bash", "zsh", "fish"},
 	"help":        {"staff"},
@@ -27,7 +27,9 @@ var commandTree = map[string][]string{
 		"revoke", "disable", "enable", "--check", "--kind", "--org", "--production", "--since", "--detail", "--search",
 		"--page", "--page-size", "--type", "--stalled", "--state", "--webhook-state", "--limit", "--after", "--before",
 		"--xml", "--events", "--io", "--events-after", "--queue", "--worker", "--args", "--status", "--subject", "--days",
-		"--actor", "--token", "--action", "--all", "--staff"},
+		"--actor", "--token", "--action", "--all", "--staff",
+		"integration-requests", "integration-request", "builds", "build", "set-app", "kit", "files", "set", "start", "manifest", "stage",
+		"test-company", "--out", "--force", "--stack", "--http", "--mapping-out", "--mapping-in", "--error", "--output", "--wait"},
 	"act-as": {"--reason", "--for", "--production", "--access", "--write-budget", "--wait", "--no-wait", "--resume", "--end", "--status"},
 }
 
