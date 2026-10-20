@@ -10,6 +10,8 @@ qube apps                           # what this session may act on
 qube use "My App Dev"               # the default app for the commands below
 qube env --write .env               # QUBE_URL / QUBE_API_KEY / QUBE_WEBHOOK_SECRET, never printed
 qube connections create --simulated --name "Local dev" --use   # --use: the default connection
+qube connections create --name "Acme" --webhook-url https://myapp.example/webhooks/qube/connection/42   # its events go there: connected, setup_cancelled, stalled, resumed
+qube connections update <connection> --webhook-url ""   # "" stops them
 qube qb customers list <connection> --max-returned 5 --wait   # prints QuickBooks' answer
 qube qb invoices create <connection> --data @invoice.json
 qube match <connection> customer "ACME, Inc." --email ap@acme.example   # the records a name could mean

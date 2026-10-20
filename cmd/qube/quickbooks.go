@@ -57,7 +57,7 @@ func (c *ctx) connections(args []string) {
 		fs := flag.NewFlagSet("connections create", flag.ExitOnError)
 		simulated := fs.Bool("simulated", false, "a fake QuickBooks answered by QuBe Sync (no Windows machine)")
 		name := fs.String("name", "", "connection name")
-		redirect := fs.String("redirect-url", "", "where onboarding sends the user back (no query string: QuBe adds ?connection_id=...&state=...)")
+		webhook := fs.String("webhook-url", "", "where QuBe Sync sends the connection's events (connected, setup_cancelled, stalled, resumed), signed like every webhook")
 		use := fs.Bool("use", false, "make it the default connection (as `qube use --connection` would)")
 		parseAnywhere(fs, args)
 		cl, app := c.appClient()
@@ -69,8 +69,8 @@ func (c *ctx) connections(args []string) {
 		if *name != "" {
 			body["name"] = *name
 		}
-		if *redirect != "" {
-			body["redirect_url"] = *redirect
+		if *webhook != "" {
+			body["webhook_url"] = *webhook
 		}
 		var out struct {
 			Data map[string]interface{} `json:"data"`
@@ -109,7 +109,7 @@ func (c *ctx) connections(args []string) {
 			return
 		}
 		var rows [][]string
-		for _, f := range []string{"id", "name", "type", "last_connected_at", "quickbooks_product_name", "company_file", "qbxml_version", "username", "redirect_url", "onboarding_token_expires_at"} {
+		for _, f := range []string{"id", "name", "type", "last_connected_at", "quickbooks_product_name", "company_file", "qbxml_version", "username", "webhook_url", "onboarding_token_expires_at"} {
 			if v := out.Data[f]; v != nil && str(v) != "" {
 				rows = append(rows, []string{f, str(v)})
 			}
@@ -129,18 +129,25 @@ func (c *ctx) connections(args []string) {
 	case "update":
 		fs := flag.NewFlagSet("connections update", flag.ExitOnError)
 		name := fs.String("name", "", "connection name")
-		redirect := fs.String("redirect-url", "", "where onboarding sends the user back (no query string: QuBe adds ?connection_id=...&state=...)")
+		webhook := fs.String("webhook-url", "", "where QuBe Sync sends the connection's events (connected, setup_cancelled, stalled, resumed), signed like every webhook; --webhook-url \"\" stops them")
 		parseAnywhere(fs, args)
-		conn, _ := c.connectionAnd(fs.Args(), 0, "qube connections update [connection] [--name N] [--redirect-url U]")
-		body := map[string]string{}
+		conn, _ := c.connectionAnd(fs.Args(), 0, "qube connections update [connection] [--name N] [--webhook-url U]")
+		body := map[string]interface{}{}
 		if *name != "" {
 			body["name"] = *name
 		}
-		if *redirect != "" {
-			body["redirect_url"] = *redirect
-		}
+		fs.Visit(func(f *flag.Flag) {
+			if f.Name == "webhook-url" {
+				// given but empty clears it: the API takes null to stop the events
+				if *webhook == "" {
+					body["webhook_url"] = nil
+				} else {
+					body["webhook_url"] = *webhook
+				}
+			}
+		})
 		if len(body) == 0 {
-			ui.Usage("usage: qube connections update <connection> [--name N] [--redirect-url U]")
+			ui.Usage("usage: qube connections update <connection> [--name N] [--webhook-url U]")
 		}
 		cl, app := c.appClient()
 		c.confirmWrite(app, "Update connection "+conn)
@@ -284,7 +291,7 @@ func (c *ctx) connections(args []string) {
 		}
 		fmt.Println(nameIndexOptInSummary(out.NameIndex, conn, *webhook))
 	default:
-		ui.Usage("usage: qube connections list | create [--simulated] [--name N] [--redirect-url U] [--use] | show [connection] | update [connection] [--name N] [--redirect-url U] | delete <connection> [--yes] | qwc [connection] [--output FILE] | password [connection] [--stdin] | onboarding-url [connection] | name-index [connection] [--webhook-url U]")
+		ui.Usage("usage: qube connections list | create [--simulated] [--name N] [--webhook-url U] [--use] | show [connection] | update [connection] [--name N] [--webhook-url U] | delete <connection> [--yes] | qwc [connection] [--output FILE] | password [connection] [--stdin] | onboarding-url [connection] | name-index [connection] [--webhook-url U]")
 	}
 }
 

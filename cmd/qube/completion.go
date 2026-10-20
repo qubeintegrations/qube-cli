@@ -11,7 +11,7 @@ var commandTree = map[string][]string{
 	"":            {"login", "logout", "status", "whoami", "sessions", "apps", "use", "env", "connections", "match", "requests", "listen", "check", "simulator", "workflows", "qb", "api", "admin", "act-as", "completion", "version", "help"},
 	"login":       {"--name", "--read-only", "--agent", "--admin"},
 	"sessions":    {"revoke"},
-	"connections": {"list", "create", "show", "update", "delete", "qwc", "password", "onboarding-url", "name-index"},
+	"connections": {"list", "create", "show", "update", "delete", "qwc", "password", "onboarding-url", "name-index", "--webhook-url"},
 	"match":       matchKinds,
 	"requests":    {"list", "show", "pages", "tail", "discard"},
 	"listen":      {"--forward-to", "--write-env", "--forget"},

@@ -243,9 +243,10 @@ QuickBooks operations (every one the host's v2 API has, read from its OpenAPI do
 Connections, matching, requests, the simulator and workflows (as the default app, or --app). [connection]
 may be left out: it is then --connection, or the default from ` + "`qube use --connection`" + `.
   connections list                                          * marks the default
-  connections create [--simulated] [--name N] [--redirect-url U] [--use]   (--use: make it the default)
+  connections create [--simulated] [--name N] [--webhook-url U] [--use]   (--use: make it the default)
+                                   U is sent the connection's events (connection.connected, setup_cancelled, stalled, resumed)
   connections show [connection]                             (table, or --json)
-  connections update [connection] [--name N] [--redirect-url U]
+  connections update [connection] [--name N] [--webhook-url U]   (--webhook-url "" stops the events)
   connections delete <connection>                           also discards every queued request on it
   connections qwc [connection] [--output FILE]              the .qwc file the Web Connector needs
   connections password [connection] [--stdin]               a new Web Connector password (never as a flag)
