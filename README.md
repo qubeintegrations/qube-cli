@@ -23,6 +23,9 @@ qube simulator faults <connection> --next lost   # applied, then never answered:
 qube workflows templates add_transaction --usage             # what the template asks and ends in, before you install it
 qube workflows install add_transaction --publish --replace   # safe to repeat; installs the resolve and ensure it calls too
 qube workflows push ./chart.json --publish
+qube workflows runs <connection> <run>                        # a run waiting at a question prints it: message, details, choices
+qube workflows search <connection> <run> --field list_id "Lone Star"   # the records a record field can take
+qube workflows decide <connection> <run> --choice use --data '{"list_id":"80000012-1712345678"}'
 qube api GET /connections           # any v2 path, as the current app
 ```
 
@@ -95,6 +98,15 @@ qube qb items list <connection> --iterator --max-returned 100 --wait   # every p
   query again to get the rest; it starts over from the first page.
 - `qube workflows run ... --wait` and `qube workflows decide ... --wait` wait the same way, until the run
   ends (exit 1 if it failed or was cancelled) or needs a decision.
+- A run that needs a decision waits at a question. `qube workflows runs <connection> <run>` (and `--wait`,
+  when it stops there) prints the question as the server gives it: its `message`, its `details` as
+  `label: value`, and its `choices`, each with its id, label, detail and the fields it asks for as
+  `name (type, required)`. Answer with `qube workflows decide <connection> <run> --choice ID`, adding
+  `--data JSON` for a choice with fields. A `record` field takes a value from
+  `qube workflows search <connection> <run> --field NAME QUERY`, which asks the run's `links.search` (the
+  connection's name index, so a realtime connection) and prints each match's value, label and detail; put
+  the value in `--data`, as `{"list_id": "…"}`. `decide <connection> <run> <option>` still answers by option.
+  `--json` prints the run, or the matches, as JSON.
 - The list is cached per host in `$XDG_CACHE_HOME/qube/` (`~/Library/Caches/qube/` on macOS;
   `QUBE_CACHE_DIR` overrides) and read again after a day, when it names something the list doesn't have,
   or on `qube qb --refresh`. If the host can't be reached, an older list is used, with a warning.
@@ -346,7 +358,8 @@ The server enforces this; the CLI also refuses such a command before sending it.
 
 Exit codes: 0 ok, 1 the command failed, 2 the command line was wrong, 130 interrupted.
 Under `--json`, lists print the server's data (`requests list` prints `{"data", "meta"}`), detail
-views (`requests show`, `workflows runs <id>`) always print JSON, and notes go to stderr.
+views (`requests show`, `workflows runs <id>`) always print JSON (except that `workflows runs <id>` prints a
+run waiting at a question as the question, unless `--json`), and notes go to stderr.
 
 ## Develop
 

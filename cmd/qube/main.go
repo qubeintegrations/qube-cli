@@ -285,8 +285,14 @@ may be left out: it is then --connection, or the default from ` + "`qube use --c
                                    --replace gives a workflow the app already has the template's chart
   workflows run KEY [--input JSON|@file] [--version V] [--webhook-url U] [--wait]
   workflows runs [connection] [run-id] [--events] [--state S] [--outcome O] [--after SEQ] [--limit N]
-                                   (a run or its events: JSON; with a connection chosen, a lone id is the run)
-  workflows decide [connection] <run-id> <option> [--data JSON] [--wait]
+                                   (a run or its events: JSON; with a connection chosen, a lone id is the run;
+                                   a run waiting at a question prints the question: its message, details and choices)
+  workflows decide [connection] <run-id> --choice ID [--data JSON] [--wait]
+                                   answer a waiting run's question with one of its choices; a choice with fields
+                                   takes them in --data (<option> in place of --choice ID still works)
+  workflows search [connection] <run-id> --field NAME QUERY
+                                   the records a waiting question's record field can take (value, label, detail);
+                                   put the value in --data: decide RUN --choice use --data '{"list_id":"..."}'
   workflows cancel [connection] <run-id> [--reason TEXT]
   workflows delete-run [connection] <run-id>                only once the run has ended
   api METHOD PATH [--data JSON|@file|-]                     any v2 call, as the current app (PATH /connections

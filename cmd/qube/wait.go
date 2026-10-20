@@ -291,6 +291,10 @@ func printRun(connection string, run map[string]interface{}) {
 		switch state {
 		case "awaiting_input":
 			fmt.Printf("Run %s is waiting for a decision:\n", id)
+			if len(promptChoices(run)) > 0 {
+				fmt.Print(questionText(connection, run))
+				break
+			}
 			ui.PrintJSON(run["prompt"])
 			fmt.Printf("Answer with `qube workflows decide %s %s <option> [--data JSON]`.\n", connection, id)
 		case "completed":

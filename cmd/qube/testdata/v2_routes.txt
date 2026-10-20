@@ -10,6 +10,7 @@ GET /connections/{connection_id}/simulator
 GET /connections/{connection_id}/workflow-runs
 GET /connections/{connection_id}/workflow-runs/{run_id}
 GET /connections/{connection_id}/workflow-runs/{run_id}/events
+GET /connections/{connection_id}/workflow-runs/{run_id}/search
 GET /workflow-templates
 GET /workflow-templates/{key}
 GET /workflow-templates/{key}/usage

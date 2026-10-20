@@ -17,7 +17,7 @@ var commandTree = map[string][]string{
 	"listen":      {"--forward-to", "--write-env", "--forget"},
 	"check":       {"webhooks", "--operation", "--record", "--production"},
 	"simulator":   {"show", "reset", "sync", "faults"},
-	"workflows":   {"list", "show", "push", "validate", "publish", "unpublish", "delete", "versions", "usage", "schema", "templates", "install", "run", "runs", "decide", "cancel", "delete-run", "--usage"},
+	"workflows":   {"list", "show", "push", "validate", "publish", "unpublish", "delete", "versions", "usage", "schema", "templates", "install", "run", "runs", "decide", "search", "cancel", "delete-run", "--usage", "--choice", "--field"},
 	"api":         {"GET", "POST", "PUT", "PATCH", "DELETE"},
 	"completion":  {"bash", "zsh", "fish"},
 	"help":        {"staff"},

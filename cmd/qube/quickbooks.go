@@ -1285,6 +1285,12 @@ func (c *ctx) workflows(args []string) {
 			if err := cl.Do("GET", v2path("/connections/{connection_id}/workflow-runs/{run_id}", connection, run), nil, nil, &out); err != nil {
 				fail(err)
 			}
+			// A run waiting at a question shows the question; --json, and a prompt in the
+			// older shape (options only), stay JSON.
+			if !ui.JSON && str(out.Data["state"]) == "awaiting_input" && len(promptChoices(out.Data)) > 0 {
+				printRun(connection, out.Data)
+				return
+			}
 			ui.PrintJSON(out.Data)
 		default:
 			q := url.Values{}
@@ -1312,13 +1318,26 @@ func (c *ctx) workflows(args []string) {
 		}
 	case "decide":
 		fs := flag.NewFlagSet("workflows decide", flag.ExitOnError)
-		data := fs.String("data", "{}", "JSON fields the option asks for, e.g. '{\"name\":\"New name\"}'")
+		choice := fs.String("choice", "", "the id of the choice to answer with, from the question (`qube workflows runs`)")
+		data := fs.String("data", "{}", "JSON fields the choice asks for, e.g. '{\"name\":\"New name\"}' or '{\"list_id\":\"...\"}'")
 		wait := &waitFlag{}
 		fs.Var(wait, "wait", "wait until the run ends or needs another decision (--wait=30m for longer than 10m)")
 		parseAnywhere(fs, args[1:])
-		conn, rest := c.connectionAnd(fs.Args(), 2, "qube workflows decide [connection] <run-id> <option> [--data JSON] [--wait]")
-		run, option := rest[0], rest[1]
-		body := map[string]interface{}{"option": option, "data": readJSONArg(*data)}
+		// --choice ID answers by choice; the older <option> argument still works.
+		const decideUsage = "qube workflows decide [connection] <run-id> --choice ID [--data JSON] [--wait]   (or <option> in place of --choice ID)"
+		others := 2
+		if *choice != "" {
+			others = 1
+		}
+		conn, rest := c.connectionAnd(fs.Args(), others, decideUsage)
+		body := map[string]interface{}{"data": readJSONArg(*data)}
+		run, option := rest[0], *choice
+		if *choice != "" {
+			body["choice"] = option
+		} else {
+			option = rest[1]
+			body["option"] = option
+		}
 		cl, app := c.appClient()
 		c.confirmWrite(app, fmt.Sprintf("Answer %q on run %s", option, run))
 		var out map[string]interface{}
@@ -1335,6 +1354,8 @@ func (c *ctx) workflows(args []string) {
 			return
 		}
 		fmt.Printf("Decided %q on run %s: now %s\n", option, str(d["id"]), str(d["state"]))
+	case "search":
+		c.workflowsSearch(args[1:])
 	case "cancel":
 		fs := flag.NewFlagSet("workflows cancel", flag.ExitOnError)
 		reason := fs.String("reason", "", "why the run is being cancelled")
@@ -1373,7 +1394,7 @@ func (c *ctx) workflows(args []string) {
 		}
 		fmt.Printf("Deleted run %s.\n", id)
 	default:
-		ui.Usage("usage: qube workflows list|show|push|validate|publish|unpublish|delete|versions|usage|schema|templates|install|run|runs|decide|cancel|delete-run")
+		ui.Usage("usage: qube workflows list|show|push|validate|publish|unpublish|delete|versions|usage|schema|templates|install|run|runs|decide|search|cancel|delete-run")
 	}
 }
 
