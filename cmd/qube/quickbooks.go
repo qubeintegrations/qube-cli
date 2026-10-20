@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -738,6 +739,101 @@ func templateUpdateHint(w map[string]interface{}) string {
 	return cmd
 }
 
+// workflowsUsageAll is `workflows usage --all`: the app's workflows (as `workflows list` reads
+// them: one answer, no pages), then each one's usage -- Markdown documents in list order with a
+// `---` line between them, or under --json an array of {"key", "usage"}. A workflow whose usage
+// can't be had is skipped and named on stderr after the others are printed, and the command
+// exits 1; a failure to list the workflows fails as `workflows list` does.
+func (c *ctx) workflowsUsageAll() {
+	cl, _ := c.appClient()
+	var list struct {
+		Data []map[string]interface{} `json:"data"`
+	}
+	if err := cl.Do("GET", v2path("/workflows"), nil, nil, &list); err != nil {
+		fail(err)
+	}
+	if len(list.Data) == 0 {
+		ui.Info("No workflows yet: `qube workflows push chart.json` creates one.")
+	}
+	type documented struct {
+		Key   string      `json:"key"`
+		Usage interface{} `json:"usage"`
+	}
+	documents := []documented{} // an array even when empty
+	var failures []string
+	printed := 0
+	for _, w := range list.Data {
+		key := str(w["key"])
+		if ui.JSON {
+			var out struct {
+				Data interface{} `json:"data"`
+			}
+			if err := cl.Do("GET", v2path("/workflows/{key}/usage", key), nil, nil, &out); err != nil {
+				failures = append(failures, usageFailure(key, err))
+				continue
+			}
+			documents = append(documents, documented{Key: key, Usage: out.Data})
+			continue
+		}
+		body, status, err := cl.Raw("GET", v2path("/workflows/{key}/usage.md", key), nil, nil)
+		if err != nil {
+			failures = append(failures, usageFailure(key, err))
+			continue
+		}
+		if status < 200 || status > 299 {
+			failures = append(failures, fmt.Sprintf("%s: HTTP %d: %s", key, status, answerMessage(body)))
+			continue
+		}
+		if printed > 0 {
+			// a blank line first: straight under a line of text, --- would make that line a heading
+			fmt.Print("\n---\n\n")
+		}
+		ui.PrintRaw(body)
+		printed++
+	}
+	if ui.JSON {
+		ui.PrintJSON(documents)
+	}
+	if len(failures) > 0 {
+		ui.Fail("no usage for %d of %d workflows (the rest were printed):\n  %s",
+			len(failures), len(list.Data), strings.Join(failures, "\n  "))
+	}
+}
+
+// usageFailure is one line for the failure report of `workflows usage --all`. Ctrl-C is not a
+// failure of one workflow: it stops the command.
+func usageFailure(key string, err error) string {
+	if errors.Is(err, context.Canceled) {
+		fail(err)
+	}
+	return key + ": " + err.Error()
+}
+
+// answerMessage is what a non-2xx answer said, for a line of text: the server's message from
+// either of its error envelopes, else the body itself (a long one cut short).
+func answerMessage(body []byte) string {
+	var env struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+		Errors struct {
+			Detail string `json:"detail"`
+		} `json:"errors"`
+	}
+	if json.Unmarshal(body, &env) == nil {
+		for _, m := range []string{env.Errors.Detail, env.Error.Message} {
+			if m != "" {
+				return m
+			}
+		}
+	}
+	text := strings.Join(strings.Fields(string(body)), " ")
+	if len(text) > 200 {
+		text = text[:200] + "..."
+	}
+	return text
+}
+
 func (c *ctx) workflows(args []string) {
 	if len(args) == 0 {
 		args = []string{"list"}
@@ -950,11 +1046,23 @@ func (c *ctx) workflows(args []string) {
 		}
 		ui.Table(os.Stdout, []string{"VERSION", "PUBLISHED AT", "BY", "NOTES"}, rows, "No published versions of "+key+" yet.")
 	case "usage":
+		const usageLine = "usage: qube workflows usage KEY [--version V] | --all"
 		fs := flag.NewFlagSet("workflows usage", flag.ExitOnError)
 		version := fs.String("version", "", "a version number instead of the published one")
+		all := fs.Bool("all", false, "every workflow's usage, one after another")
 		parseAnywhere(fs, args[1:])
+		if *all {
+			// each workflow has its own versions, so neither a KEY nor a --version can go with --all
+			versionGiven := false
+			fs.Visit(func(f *flag.Flag) { versionGiven = versionGiven || f.Name == "version" })
+			if fs.NArg() > 0 || versionGiven {
+				ui.Usage("--all takes no KEY and no --version: each workflow has its own versions\n%s", usageLine)
+			}
+			c.workflowsUsageAll()
+			return
+		}
 		if fs.NArg() < 1 {
-			ui.Usage("usage: qube workflows usage KEY [--version V]")
+			ui.Usage(usageLine)
 		}
 		key := fs.Arg(0)
 		var q url.Values

@@ -269,7 +269,8 @@ may be left out: it is then --connection, or the default from ` + "`qube use --c
   workflows unpublish KEY
   workflows delete KEY
   workflows versions KEY [NUMBER]                           every published version, or one (JSON)
-  workflows usage KEY [--version V]                         Markdown docs for the chart's input/output
+  workflows usage KEY [--version V] | --all                 Markdown docs for the chart's input/output;
+                                   --all: every workflow's, one after another (--json: [{key, usage}])
   workflows schema                                          the chart JSON Schema
   workflows templates [KEY]                                 shipped charts ready to install
   workflows install KEY [--publish] [--notes TEXT] [--as NEW_KEY] [--replace]
