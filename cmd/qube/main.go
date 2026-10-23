@@ -151,6 +151,8 @@ func main() {
 		c.workflows(args[1:])
 	case "check":
 		c.check(args[1:])
+	case "skills":
+		c.skills(args[1:])
 	case "qb", "quickbooks":
 		c.qb(args[1:])
 	case "api":
@@ -172,11 +174,11 @@ func signalContext() (context.Context, context.CancelFunc) {
 }
 
 // usesActAs says whether a command would use an act-as grant the session holds: every one
-// but those about the session itself, `qube admin` (always the staff session) and
-// `qube act-as`. Completion's `qb --complete` reads only the cache and stays quiet.
+// but those about the session itself, `qube admin` (always the staff session), `qube act-as`
+// and `qube skills` (public files, fetched without a token). Completion's `qb --complete` reads only the cache and stays quiet.
 func usesActAs(args []string) bool {
 	switch args[0] {
-	case "version", "login", "logout", "status", "admin", "act-as", "completion":
+	case "version", "login", "logout", "status", "admin", "act-as", "completion", "skills":
 		return false
 	case "qb", "quickbooks":
 		for _, a := range args[1:] {
@@ -316,6 +318,12 @@ Checking your integration (as the default app, or --app):
                                    event (--record ID) get a 2xx within 5 s. Exits 1 when a check fails.
                                    The webhook secret signs them and is never shown; not for QuBe Sync's own
                                    host, and a URL that isn't on this machine needs --yes
+
+Agent skills (no login needed):
+  skills install [NAME] [--dir DIR]
+                                   an agent skill QuBe Sync publishes, written to DIR/.claude/skills/NAME/SKILL.md
+                                   (NAME: qube-sync-audit, the integration audit, by default; DIR: here); run it
+                                   again to update it
 
 Other:
   completion bash|zsh|fish         shell completion script (eval or save it)

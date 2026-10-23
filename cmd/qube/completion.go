@@ -8,7 +8,7 @@ import (
 
 // The command tree the completion scripts describe. Keep in step with main() and usage().
 var commandTree = map[string][]string{
-	"":            {"login", "logout", "status", "whoami", "sessions", "apps", "use", "env", "connections", "match", "requests", "listen", "check", "simulator", "workflows", "qb", "api", "admin", "act-as", "completion", "version", "help"},
+	"":            {"login", "logout", "status", "whoami", "sessions", "apps", "use", "env", "connections", "match", "requests", "listen", "check", "skills", "simulator", "workflows", "qb", "api", "admin", "act-as", "completion", "version", "help"},
 	"login":       {"--name", "--read-only", "--agent", "--admin"},
 	"sessions":    {"revoke"},
 	"connections": {"list", "create", "show", "update", "delete", "qwc", "password", "onboarding-url", "name-index", "--webhook-url"},
@@ -16,6 +16,7 @@ var commandTree = map[string][]string{
 	"requests":    {"list", "show", "pages", "tail", "discard"},
 	"listen":      {"--forward-to", "--write-env", "--forget"},
 	"check":       {"webhooks", "--operation", "--record", "--production"},
+	"skills":      {"install", "--dir"},
 	"simulator":   {"show", "reset", "sync", "faults"},
 	"workflows":   {"list", "show", "push", "validate", "publish", "unpublish", "delete", "versions", "usage", "schema", "templates", "install", "run", "runs", "decide", "search", "cancel", "delete-run", "--usage", "--choice", "--field"},
 	"api":         {"GET", "POST", "PUT", "PATCH", "DELETE"},

@@ -27,6 +27,7 @@ qube workflows runs <connection> <run>                        # a run waiting at
 qube workflows search <connection> <run> --field list_id "Lone Star"   # the records a record field can take
 qube workflows decide <connection> <run> --choice use --data '{"list_id":"80000012-1712345678"}'
 qube api GET /connections           # any v2 path, as the current app
+qube skills install                 # the integration audit skill, in .claude/skills/ (no login needed)
 ```
 
 `qube help` lists every command. Every command takes `--json` (machine output), `--host`, `--app`,
@@ -217,6 +218,22 @@ stale-timestamp-401    refuse-stale-timestamp                 t 10 min old      
   needs `--yes`, and says so. A production app needs `--production`. A redirect is reported and never followed,
   and a request with no answer in 10 s fails. It needs a read and write session, not an act-as grant, as
   `qube env` does.
+
+## Agent skills: `qube skills install`
+
+```bash
+qube skills install                       # .claude/skills/qube-sync-audit/SKILL.md, the integration audit
+qube skills install qube-sync-audit --dir ~/code/myapp
+```
+
+`qube skills install [NAME]` downloads an agent skill QuBe Sync publishes (`<host>/skills/NAME/SKILL.md`) and
+writes it to `DIR/.claude/skills/NAME/SKILL.md`, creating the directories; `DIR` is the current directory unless
+`--dir` says otherwise, and `NAME` is `qube-sync-audit` unless given. It's the same as
+`curl -o .claude/skills/qube-sync-audit/SKILL.md --create-dirs https://qubesync.com/skills/qube-sync-audit/SKILL.md`,
+and like it needs no login and sends no credentials. Run it again to update the skill: it says whether the file
+was written (new), updated (it had changed) or already current (nothing written); `--json` prints
+`{"path": ..., "status": "written" | "updated" | "current"}`. A name QuBe Sync doesn't publish is a 404, and the
+command says so.
 
 ## Production apps
 
