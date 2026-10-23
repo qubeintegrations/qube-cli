@@ -123,7 +123,9 @@ func TestSkillsInstallDefaultsToTheCurrentDirectory(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chdir(wd) })
 	setJSON(t, true)
 	out := captureStdout(t, func() { c.skills([]string{"install"}) })
-	if !strings.Contains(out, `"path": ".claude/skills/qube-sync-audit/SKILL.md"`) || !strings.Contains(out, `"status": "written"`) {
+	// The path is the platform's own: backslashes on Windows, escaped in JSON.
+	want, _ := json.Marshal(filepath.Join(".claude", "skills", "qube-sync-audit", "SKILL.md"))
+	if !strings.Contains(out, `"path": `+string(want)) || !strings.Contains(out, `"status": "written"`) {
 		t.Fatalf("out = %q", out)
 	}
 	if data, _ := os.ReadFile(filepath.Join(dir, ".claude", "skills", "qube-sync-audit", "SKILL.md")); string(data) != "# Audit\n" {
