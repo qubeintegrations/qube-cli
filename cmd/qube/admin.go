@@ -629,12 +629,32 @@ func (c *ctx) adminConnection(cl *api.Client, args []string) {
 	d := out.Data
 	var kv [][]string
 	kv = append(kv, []string{"organization / app", ownerLabel(d)})
-	for _, f := range []string{"id", "name", "type", "last_connected_at", "last_work_at", "quickbooks_product_name", "qbxml_version", "company_file", "username", "web_connector_schedule_seconds", "standard_pace", "postponed_until", "connection_errors", "last_connection_error_at", "stalled_notified_at", "downgrade_at", "onboarding_reset_at", "created_at", "updated_at"} {
+	for _, f := range []string{"id", "name", "type", "last_connected_at", "last_work_at", "quickbooks_product_name", "qbxml_version", "company_file", "username", "web_connector_schedule_seconds", "standard_pace", "postponed_until", "connection_errors", "last_connection_error_at", "stalled", "stalled_notified_at", "downgrade_at", "onboarding_reset_at", "created_at", "updated_at"} {
+		if f == "stalled" {
+			if v := stalledText(d); v != "" {
+				kv = append(kv, []string{f, v})
+			}
+			continue
+		}
 		if v := d[f]; v != nil && str(v) != "" {
 			kv = append(kv, []string{f, str(v)})
 		}
 	}
 	ui.Table(os.Stdout, []string{"FIELD", "VALUE"}, kv, "")
+}
+
+// stalledText is a stalled connection's stalled_at and stall_reason (not_checking_in or
+// quickbooks_unavailable) on one row: "since 2026-10-22T14:05:00Z (not_checking_in)". Both are
+// null while the connection isn't stalled, and the row is left out.
+func stalledText(d map[string]interface{}) string {
+	at, reason := str(d["stalled_at"]), str(d["stall_reason"])
+	switch {
+	case at != "" && reason != "":
+		return "since " + at + " (" + reason + ")"
+	case at != "":
+		return "since " + at
+	}
+	return reason
 }
 
 func (c *ctx) adminRequests(cl *api.Client, args []string) {

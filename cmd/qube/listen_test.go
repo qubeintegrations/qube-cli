@@ -871,6 +871,79 @@ func TestSummaryText(t *testing.T) {
 	}
 }
 
+// connectionDelivery is a connection event as the relay hands it over: the summary names it,
+// and the body is what the connection's webhook_url is sent.
+func connectionDelivery(attemptID, event, body string) map[string]interface{} {
+	d := delivery(attemptID, "/connection/42", body)
+	d["summary"] = map[string]interface{}{"kind": "connection", "id": "3f2a9c1e-1111-2222-3333-444455556666", "event": event}
+	return d
+}
+
+func connectionBody(event, stallReason string) string {
+	conn := map[string]interface{}{"id": "3f2a9c1e-1111-2222-3333-444455556666", "name": "Acme", "type": "standard"}
+	if stallReason != "" {
+		conn["stalled_at"] = "2026-10-22T14:05:00Z"
+		conn["stall_reason"] = stallReason
+	}
+	return string(mustJSON(map[string]interface{}{"event": event, "timestamp": 1792000000, "app_id": "app1", "connection": conn}))
+}
+
+// Connection events get a line of their own: the event, the connection and, for a stall, why.
+func TestListenPrintsConnectionEvents(t *testing.T) {
+	withDeviceDir(t)
+	setJSON(t, false)
+	app, _ := newLocalApp(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
+	relay := newFakeRelay(deliver(
+		connectionDelivery("att_1", "connection.stalled", connectionBody("connection.stalled", "not_checking_in")),
+	), deliver(
+		connectionDelivery("att_2", "connection.resumed", connectionBody("connection.resumed", "")),
+	))
+	c := newAPITest(t, relay.handlers())
+	var stdout string
+	_ = captureStderr(t, func() {
+		stdout = captureStdout(t, func() { _ = c.runListen(forwardTo(t, app.URL+"/webhooks/qube")) })
+	})
+	for _, want := range []string{
+		"  connection.stalled  connection 3f2a9c1e…  not_checking_in  → POST /webhooks/qube/connection/42  200  ",
+		"  connection.resumed  connection 3f2a9c1e…  → POST /webhooks/qube/connection/42  200  ",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("stdout lacks %q:\n%s", want, stdout)
+		}
+	}
+}
+
+func TestDeliveryText(t *testing.T) {
+	for _, tc := range []struct {
+		name, event, body, want string
+	}{
+		{"stalled, QuickBooks closed", "connection.stalled", connectionBody("connection.stalled", "quickbooks_unavailable"), "connection.stalled  connection 3f2a9c1e…  quickbooks_unavailable"},
+		{"stalled, not checking in", "connection.stalled", connectionBody("connection.stalled", "not_checking_in"), "connection.stalled  connection 3f2a9c1e…  not_checking_in"},
+		{"stalled without a reason", "connection.stalled", connectionBody("connection.stalled", ""), "connection.stalled  connection 3f2a9c1e…"},
+		{"connected", "connection.connected", connectionBody("connection.connected", ""), "connection.connected  connection 3f2a9c1e…"},
+		{"setup cancelled", "connection.setup_cancelled", connectionBody("connection.setup_cancelled", ""), "connection.setup_cancelled  connection 3f2a9c1e…"},
+		{"resumed", "connection.resumed", connectionBody("connection.resumed", ""), "connection.resumed  connection 3f2a9c1e…"},
+		// only stalled carries a reason, whatever the body says
+		{"resumed with a stale reason", "connection.resumed", connectionBody("connection.resumed", "not_checking_in"), "connection.resumed  connection 3f2a9c1e…"},
+		{"a body that isn't JSON", "connection.stalled", "not json", "connection  connection.stalled  3f2a9c1e…"},
+		{"a body without a connection", "connection.stalled", `{"event":"connection.stalled"}`, "connection  connection.stalled  3f2a9c1e…"},
+	} {
+		var d api.Delivery
+		raw, _ := json.Marshal(connectionDelivery("att_1", tc.event, tc.body))
+		if err := json.Unmarshal(raw, &d); err != nil {
+			t.Fatal(err)
+		}
+		if got := deliveryText(d); got != tc.want {
+			t.Errorf("%s: deliveryText = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+	// other kinds are their summary's text, the body unread
+	d := api.Delivery{Body: "not json", Summary: map[string]interface{}{"kind": "name_index", "id": "conn_123456", "event": "name_index.ready"}}
+	if got := deliveryText(d); got != "name_index.ready  connection conn_123…" {
+		t.Errorf("name_index: %q", got)
+	}
+}
+
 func TestTruncateRunes(t *testing.T) {
 	long := strings.Repeat("ü", 250)
 	got := truncateRunes(long, 200)

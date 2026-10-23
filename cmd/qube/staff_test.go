@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"reflect"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -790,6 +791,43 @@ func TestAdminOrgsShapes(t *testing.T) {
 	out = captureStdout(t, func() { c.adminOrgs(c.staffClient(), nil) })
 	if !strings.Contains(out, "owner@acme.example") || !strings.Contains(out, "PROD CONNECTIONS") {
 		t.Fatalf("table:\n%s", out)
+	}
+}
+
+// A stalled connection shows when it stalled and why on one row; one that isn't stalled (both
+// fields null) has no such row. --json passes the fields through.
+func TestAdminConnectionShowsTheStall(t *testing.T) {
+	answer := map[string]interface{}{"id": "conn_1", "name": "Acme", "type": "standard", "stalled_at": nil, "stall_reason": nil,
+		"organization": map[string]interface{}{"name": "Acme Corp"}, "app": map[string]interface{}{"name": "Acme App", "sandbox": false}}
+	c := staffCtx(t, true, map[string]http.HandlerFunc{
+		"/api/admin/connections/conn_1": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, 200, map[string]interface{}{"data": answer})
+		},
+	})
+	setJSON(t, false)
+	out := captureStdout(t, func() { c.adminConnection(c.staffClient(), []string{"conn_1"}) })
+	if strings.Contains(out, "stalled") || !strings.Contains(out, "Acme Corp / Acme App") {
+		t.Fatalf("not stalled:\n%s", out)
+	}
+
+	answer["stalled_at"], answer["stall_reason"] = "2026-10-22T14:05:00Z", "not_checking_in"
+	out = captureStdout(t, func() { c.adminConnection(c.staffClient(), []string{"conn_1"}) })
+	if !regexp.MustCompile(`(?m)^stalled +since 2026-10-22T14:05:00Z \(not_checking_in\)$`).MatchString(out) {
+		t.Fatalf("stalled:\n%s", out)
+	}
+
+	answer["stall_reason"] = "quickbooks_unavailable"
+	setJSON(t, true)
+	out = captureStdout(t, func() { c.adminConnection(c.staffClient(), []string{"conn_1"}) })
+	var got map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &got); err != nil || got["stall_reason"] != "quickbooks_unavailable" || got["stalled_at"] != "2026-10-22T14:05:00Z" {
+		t.Fatalf("--json: %v %s", err, out)
+	}
+	if got := stalledText(map[string]interface{}{"stalled_at": "2026-10-22T14:05:00Z"}); got != "since 2026-10-22T14:05:00Z" {
+		t.Errorf("without a reason: %q", got)
+	}
+	if got := stalledText(map[string]interface{}{"stalled_at": nil, "stall_reason": "not_checking_in"}); got != "not_checking_in" {
+		t.Errorf("without a time: %q", got)
 	}
 }
 

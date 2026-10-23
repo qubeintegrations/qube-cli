@@ -529,7 +529,7 @@ func (l *listener) print(at time.Time, elapsed time.Duration, d api.Delivery, ta
 	case r.Error != nil || r.Status < 200 || r.Status > 299:
 		note = "  (QuBe will retry)"
 	}
-	fmt.Printf("%s  %s  → POST %s  %s  %d ms%s\n", at.Format("15:04:05"), summaryText(d.Summary), path, outcome, ms, note)
+	fmt.Printf("%s  %s  → POST %s  %s  %d ms%s\n", at.Format("15:04:05"), deliveryText(d), path, outcome, ms, note)
 }
 
 func reportErrorText(err error) string {
@@ -556,6 +556,32 @@ func forwardErrorText(e *api.ForwardError) string {
 		return "TLS failed: " + e.Detail
 	}
 	return "failed: " + e.Detail
+}
+
+// deliveryText is what a delivery is: its summary's text, but for a connection event the
+// summary ({kind: "connection", id, event}) has no stall_reason, so the body is read too:
+// "connection.stalled  connection 3f2a…  not_checking_in". A body that isn't a connection
+// event's JSON gets the generic line.
+func deliveryText(d api.Delivery) string {
+	if str(d.Summary["kind"]) != "connection" {
+		return summaryText(d.Summary)
+	}
+	var body struct {
+		Event      string `json:"event"`
+		Connection *struct {
+			ID          string `json:"id"`
+			StallReason string `json:"stall_reason"`
+		} `json:"connection"`
+	}
+	if err := json.Unmarshal([]byte(d.Body), &body); err != nil || body.Connection == nil {
+		return summaryText(d.Summary)
+	}
+	event, id := orEmpty(str(d.Summary["event"]), body.Event), orEmpty(str(d.Summary["id"]), body.Connection.ID)
+	text := event + "  connection " + short(id)
+	if event == "connection.stalled" && body.Connection.StallReason != "" {
+		text += "  " + body.Connection.StallReason
+	}
+	return text
 }
 
 // summaryText is what a delivery is, from its summary: "request 1f0c2a3b…  response_received",
