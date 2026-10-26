@@ -308,7 +308,7 @@ func statusText(host string, d map[string]interface{}) string {
 			}
 		}
 		if s := num(r["stalled_connections"]); s > 0 {
-			text += fmt.Sprintf(" · %s told requests are stalled", plural(s, "connection's owners", "connections' owners"))
+			text += fmt.Sprintf(" · %s stalled", plural(s, "connection", "connections"))
 		}
 		line(mark(r), "Requests", text)
 	}
@@ -575,7 +575,7 @@ func (c *ctx) adminUser(cl *api.Client, args []string) {
 func (c *ctx) adminConnections(cl *api.Client, args []string) {
 	fs, org := adminFlags("connections")
 	typ := fs.String("type", "", "standard, realtime or simulated")
-	stalled := fs.Bool("stalled", false, "only connections whose owners were told requests are stalled")
+	stalled := fs.Bool("stalled", false, "only stalled connections (connection.stalled sent, not yet resumed)")
 	page := fs.Int("page", 0, "page number")
 	size := fs.Int("page-size", 0, "connections per page (at most 100)")
 	parseAnywhere(fs, args)
@@ -629,7 +629,7 @@ func (c *ctx) adminConnection(cl *api.Client, args []string) {
 	d := out.Data
 	var kv [][]string
 	kv = append(kv, []string{"organization / app", ownerLabel(d)})
-	for _, f := range []string{"id", "name", "type", "last_connected_at", "last_work_at", "quickbooks_product_name", "qbxml_version", "company_file", "username", "web_connector_schedule_seconds", "standard_pace", "postponed_until", "connection_errors", "last_connection_error_at", "stalled", "stalled_notified_at", "downgrade_at", "onboarding_reset_at", "created_at", "updated_at"} {
+	for _, f := range []string{"id", "name", "type", "last_connected_at", "last_work_at", "quickbooks_product_name", "qbxml_version", "company_file", "username", "web_connector_schedule_seconds", "standard_pace", "postponed_until", "connection_errors", "last_connection_error_at", "stalled", "downgrade_at", "onboarding_reset_at", "created_at", "updated_at"} {
 		if f == "stalled" {
 			if v := stalledText(d); v != "" {
 				kv = append(kv, []string{f, v})
