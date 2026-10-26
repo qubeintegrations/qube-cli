@@ -440,6 +440,40 @@ func TestSimulatorFaultsNextStatusReplacesLost(t *testing.T) {
 	}
 }
 
+func TestSimulatorFaultsStall(t *testing.T) {
+	// --stall sets the stalled fault and leaves the others alone
+	faults, out := simulatorFaultsPUT(t, map[string]interface{}{"latency_ms": 50}, "--stall", "quickbooks_unavailable")
+	if faults["stalled"] != "quickbooks_unavailable" || faults["latency_ms"] != float64(50) || len(faults) != 2 {
+		t.Fatalf("PUT faults = %v", faults)
+	}
+	if !strings.Contains(out, `"stalled":"quickbooks_unavailable"`) {
+		t.Fatalf("output = %q", out)
+	}
+	// another reason replaces it
+	faults, _ = simulatorFaultsPUT(t, map[string]interface{}{"stalled": "quickbooks_unavailable"}, "--stall", "not_checking_in")
+	if faults["stalled"] != "not_checking_in" || len(faults) != 1 {
+		t.Fatalf("PUT faults = %v", faults)
+	}
+	// off clears it, and the command says nothing is left
+	faults, out = simulatorFaultsPUT(t, map[string]interface{}{"stalled": "not_checking_in"}, "--stall", "off")
+	if len(faults) != 0 || !strings.Contains(out, "No faults") {
+		t.Fatalf("PUT faults = %v, output = %q", faults, out)
+	}
+}
+
+func TestApplyStallFlag(t *testing.T) {
+	f := map[string]interface{}{"stalled": "not_checking_in"}
+	if err := applyStallFlag(f, ""); err != nil || f["stalled"] != "not_checking_in" {
+		t.Fatalf("no flag changed the faults: %v, %v", f, err)
+	}
+	if err := applyStallFlag(f, "ok"); err != nil || len(f) != 0 {
+		t.Fatalf("ok should clear it: %v, %v", f, err)
+	}
+	if applyStallFlag(f, "asleep") == nil {
+		t.Fatal("an unknown reason should be refused")
+	}
+}
+
 // ---------------------------------------------------------------- workflows
 
 func TestWorkflowsValidateValidChart(t *testing.T) {

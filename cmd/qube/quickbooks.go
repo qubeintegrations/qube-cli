@@ -525,6 +525,7 @@ func (c *ctx) simulator(args []string) {
 	qb := fs.String("qb", "", "closed | modal | mismatch | unexpected | ok  (sticky connection fault)")
 	next := fs.String("next", "", "xml | lost | 3100 | 3120 | 3140 | 3180 | 3200 | ok  (one-shot, next request; lost: applied but never answered, so it ends timed_out)")
 	latency := fs.Int("latency", -1, "milliseconds QuickBooks thinks before each answer")
+	stall := fs.String("stall", "", "not_checking_in | quickbooks_unavailable | off  (sticky: the connection stalls, so connection.stalled is sent and requests wait; off sends connection.resumed)")
 	parseAnywhere(fs, args[1:])
 	connection, _ := c.connectionAnd(fs.Args(), 0, "qube simulator "+args[0]+" [connection]")
 	cl, app := c.appClient()
@@ -575,6 +576,9 @@ func (c *ctx) simulator(args []string) {
 			}
 		}
 		if err := applyFaultFlags(faults, *qb, *next, *latency); err != nil {
+			ui.Usage("%v", err)
+		}
+		if err := applyStallFlag(faults, *stall); err != nil {
 			ui.Usage("%v", err)
 		}
 		if err := cl.Do("PUT", v2path("/connections/{connection_id}/simulator", connection), nil, map[string]interface{}{"faults": faults}, &out); err != nil {
@@ -643,9 +647,27 @@ func applyFaultFlags(faults map[string]interface{}, qb, next string, latency int
 	return nil
 }
 
+// applyStallFlag sets or clears the simulator's `stalled` fault: the connection stalls with that
+// stall_reason (connection.stalled is sent once a request waits, and requests wait), and
+// clearing it sends connection.resumed.
+func applyStallFlag(faults map[string]interface{}, stall string) error {
+	switch stall {
+	case "":
+	case "off", "ok":
+		delete(faults, "stalled")
+	case "not_checking_in", "quickbooks_unavailable":
+		faults["stalled"] = stall
+	default:
+		return fmt.Errorf("--stall must be not_checking_in|quickbooks_unavailable|off (got %q)", stall)
+	}
+	return nil
+}
+
 // syncSummary is the human-readable line for one `simulator sync` result.
 func syncSummary(data map[string]interface{}, connection string) string {
 	switch str(data["result"]) {
+	case "stalled":
+		return fmt.Sprintf("The connection is stalled (%s), so the Web Connector didn't run and your requests wait. Clear it with `qube simulator faults %s --stall off` to send connection.resumed.", str(data["stall_reason"]), connection)
 	case "nothing_to_do":
 		return "Nothing was waiting: everything queued had already been answered."
 	case "connection_error":

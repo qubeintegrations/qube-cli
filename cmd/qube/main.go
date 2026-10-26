@@ -269,6 +269,7 @@ may be left out: it is then --connection, or the default from ` + "`qube use --c
   simulator show|reset|sync [connection]
   simulator faults [connection] [--qb closed|modal|mismatch|unexpected|ok]
                                   [--next xml|lost|3100|3120|3140|3180|3200|ok] [--latency ms]
+                                  [--stall not_checking_in|quickbooks_unavailable|off]
   workflows list
   workflows show KEY                                        (JSON)
   workflows push FILE [--publish] [--notes TEXT]

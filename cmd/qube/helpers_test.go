@@ -297,6 +297,8 @@ func TestSyncSummary(t *testing.T) {
 			"The session failed with the connection fault that is set. The request it was sending is retried next session; while the fault lasts, QuBe spaces sessions out, up to 30 minutes apart."},
 		{"postponed", map[string]interface{}{"result": "postponed", "retry_in": float64(12)},
 			"QuickBooks couldn't be reached on the last tries, so QuBe asked the Web Connector to wait 12s. Run `qube simulator sync conn-1` again to go ahead, as clicking Update Selected again would."},
+		{"stalled", map[string]interface{}{"result": "stalled", "stall_reason": "not_checking_in"},
+			"The connection is stalled (not_checking_in), so the Web Connector didn't run and your requests wait. Clear it with `qube simulator faults conn-1 --stall off` to send connection.resumed."},
 		{"answered", map[string]interface{}{"result": "ok", "answered": float64(3), "errors": float64(1)},
 			"Session done: 3 answered, 1 failed."},
 	}
