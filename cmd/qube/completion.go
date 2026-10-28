@@ -15,7 +15,7 @@ var commandTree = map[string][]string{
 	"match":       matchKinds,
 	"requests":    {"list", "show", "pages", "tail", "discard"},
 	"listen":      {"--forward-to", "--write-env", "--forget"},
-	"check":       {"webhooks", "--operation", "--record", "--production"},
+	"check":       {"webhooks", "--operation", "--production"},
 	"skills":      {"install", "--dir"},
 	"simulator":   {"show", "reset", "sync", "faults"},
 	"workflows":   {"list", "show", "push", "validate", "publish", "unpublish", "delete", "versions", "usage", "schema", "templates", "install", "run", "runs", "decide", "search", "cancel", "delete-run", "--usage", "--choice", "--field"},

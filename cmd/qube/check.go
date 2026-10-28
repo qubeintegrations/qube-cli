@@ -16,30 +16,25 @@ import (
 // `qube check webhooks URL` sends signed test deliveries to the app's own webhook endpoint
 // and grades the HTTP answers (docs/integration-audit.md, "Step 2: live checks", in the QuBe
 // Sync repo). Each check is one request, tied to an integration rule by its id: a wrong
-// signature and a stale timestamp must be refused with 401, a correctly signed body with
-// unusual formatting must be accepted (the signature is over the raw bytes), a slug none of
-// the app's operations has gets 404, and a run event and a connection event get a 2xx within
-// 5 seconds. The deliveries are fake: their ids say qube-check, and no record of the app's can
-// match them, so an app that handles them right logs and skips them.
+// signature and a stale timestamp must be refused with 401, and a path none of the app's
+// routes has gets 404. Each delivery is one the app must refuse or can't route, so none can
+// reach a real run or connection; the rules that would need one are left to the code audit.
 //
 // It signs with the app's webhook secret, fetched as `qube env` fetches it and kept in memory
 // only (check_run.go: webhookSecret). Nothing here prints, logs or writes it, and no answer
 // body is ever printed, since an app's error page can quote its environment.
 
-const checkWebhooksUsage = "qube check webhooks URL [--operation SLUG] [--record ID] [--production] [--yes] [--json]"
+const checkWebhooksUsage = "qube check webhooks URL [--operation SLUG] [--production] [--yes] [--json]"
 
 const checkWebhooksHelp = `Sends signed test deliveries to your app's webhook endpoint and grades the answers. URL is
 the base your app builds each webhook URL from, QUBE_WEBHOOK_URL (http://localhost:3000/webhooks/qube).
 One request per check, signed with the app's webhook secret, which is never shown:
   bad-signature-401       a wrong signature must be refused with 401
   stale-timestamp-401     a correct signature over a timestamp 10 minutes old must get 401
-  raw-body-signature      a correct signature over a body with unusual spacing, key order and \u
-                          escapes must be accepted (--operation): the signature is over the raw bytes
-  unknown-operation-404   a slug none of your operations has must get 404
-  fast-2xx                a run event for --operation SLUG must get a 2xx within 5 s, not a 5xx
-  connection-event-2xx    with --record ID, a connection.connected for another connection must get
-                          a 2xx within 5 s (the app should skip it: see its log)
-Exits 1 when a check fails. It refuses QuBe Sync's own host, and asks for --yes when URL isn't on this
+  unknown-operation-404   a path none of your routes has must get 404
+The first two go to URL/runs/qube-check-<n>, a run id no app has, so the app must refuse them
+before it looks the id up; --operation changes runs. Nothing is sent that the app should act on,
+so no check reaches a real run or connection. Exits 1 when a check fails. It refuses QuBe Sync's own host, and asks for --yes when URL isn't on this
 machine. A redirect is reported, never followed; a request that gets no answer in 10 s fails.
 `
 
@@ -62,8 +57,7 @@ func (c *ctx) check(args []string) {
 // passed. The command line's mistakes and the refusals below end the process first.
 func (c *ctx) checkWebhooks(args []string) bool {
 	fs := flag.NewFlagSet("check webhooks", flag.ExitOnError)
-	operation := fs.String("operation", "", "an operation slug your webhook route has: the run-event checks send to it")
-	record := fs.String("record", "", "the id of the record in your app that keeps a connection (URL/connection/ID is its connection webhook URL): the connection-event check sends there")
+	operation := fs.String("operation", defaultOperation, "the segment your run webhook URLs start with after URL (URL/SLUG/<id>)")
 	production := fs.Bool("production", false, "the current app is a production app: say so to send it test deliveries")
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "usage: %s\n\n%sflags:\n", checkWebhooksUsage, checkWebhooksHelp)
@@ -74,7 +68,7 @@ func (c *ctx) checkWebhooks(args []string) bool {
 		ui.Usage("usage: %s", checkWebhooksUsage)
 	}
 	if strings.ContainsAny(*operation, "/?# \t\r\n") {
-		ui.Usage("--operation is one slug of your webhook route, like orders (got %q)", *operation)
+		ui.Usage("--operation is one path segment, like runs (got %q)", *operation)
 	}
 
 	target, err := parseCheckURL(fs.Arg(0))
@@ -118,7 +112,6 @@ func (c *ctx) checkWebhooks(args []string) bool {
 		app:       *app,
 		secret:    webhookSecret(creds.WebhookSecret),
 		operation: *operation,
-		record:    *record,
 	}
 	creds.WebhookSecret = ""
 	report, err := run.run(c.bg)
@@ -264,7 +257,7 @@ type webhookCheckResult struct {
 
 func (r *webhookCheckReport) print(w io.Writer) {
 	fmt.Fprintf(w, "Checking %s as %q (%s app).\n", r.URL, r.App.Name, appKind(r.App.Sandbox))
-	fmt.Fprintln(w, "One test delivery per check, signed with the app's webhook secret. Their ids say qube-check, so an app that handles them right logs and skips them.")
+	fmt.Fprintln(w, "One test delivery per check, signed with the app's webhook secret. Each is one your app must refuse or can't route.")
 	fmt.Fprintln(w)
 	var rows [][]string
 	for _, ck := range r.Checks {

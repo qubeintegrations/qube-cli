@@ -43,11 +43,8 @@ type webhookApp struct {
 
 	skipHMAC    bool          // accepts a bad signature (it still refuses an old timestamp)
 	skipAge     bool          // accepts a stale timestamp (it still checks the signature)
-	reserialize bool          // verifies the body parsed and written out again
-	anySlug     bool          // answers 200 to a slug none of its operations has
-	slowOp      time.Duration // does the work in the request: a run event takes this long
-	opStatus    int           // a run event's answer, when not 200
-	connStatus  int           // a connection event's answer, when not 200
+	anySlug     bool          // answers 200 to a path none of its routes has
+	routeFirst  bool          // looks the route up before it verifies, so an unrouted path is a 404
 	redirectAll string        // every request is a 302 to this, before anything else (force-SSL, a login)
 	sleepAll    time.Duration // every request waits this long first
 	echoSecret  bool          // every answer quotes the webhook secret, as a debug page can
@@ -66,7 +63,7 @@ type seenDelivery struct {
 }
 
 func newWebhookApp() *webhookApp {
-	return &webhookApp{secret: checkTestSecret, ops: map[string]bool{"orders": true, "connection": true}}
+	return &webhookApp{secret: checkTestSecret, ops: map[string]bool{"runs": true, "orders": true}}
 }
 
 func serveWebhookApp(t *testing.T, a *webhookApp) string {
@@ -96,28 +93,21 @@ func (a *webhookApp) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		a.reply(w, http.StatusFound)
 		return
 	}
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/webhooks/qube/"), "/")
+	routed := len(parts) == 2 && (a.ops[parts[0]] || a.anySlug)
+	if a.routeFirst && !routed {
+		a.reply(w, http.StatusNotFound)
+		return
+	}
 	if !a.verify(body, r.Header.Get("X-QUBE-Signature")) {
 		a.reply(w, http.StatusUnauthorized)
 		return
 	}
-	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/webhooks/qube/"), "/")
-	if len(parts) != 2 || (!a.ops[parts[0]] && !a.anySlug) {
+	if !routed {
 		a.reply(w, http.StatusNotFound)
 		return
 	}
-	if parts[0] == "connection" {
-		a.reply(w, orStatus(a.connStatus, http.StatusOK))
-		return
-	}
-	time.Sleep(a.slowOp)
-	a.reply(w, orStatus(a.opStatus, http.StatusOK))
-}
-
-func orStatus(status, otherwise int) int {
-	if status == 0 {
-		return otherwise
-	}
-	return status
+	a.reply(w, http.StatusOK)
 }
 
 func (a *webhookApp) reply(w http.ResponseWriter, status int) {
@@ -146,18 +136,10 @@ func (a *webhookApp) verify(body []byte, header string) bool {
 	if !a.skipAge && age > 300 {
 		return false
 	}
-	payload := body
-	if a.reserialize {
-		var v map[string]interface{}
-		if json.Unmarshal(body, &v) != nil {
-			return false
-		}
-		payload, _ = json.Marshal(v)
-	}
 	if a.skipHMAC {
 		return true
 	}
-	want := hmacHex(a.secret, t, payload)
+	want := hmacHex(a.secret, t, body)
 	for _, s := range sigs {
 		if hmac.Equal([]byte(s), []byte(want)) {
 			return true
@@ -261,7 +243,7 @@ func failedChecks(rep webhookCheckReport) []string {
 	return failed
 }
 
-var allChecks = []string{checkBadSignature, checkStale, checkRawBody, checkUnknownSlug, checkFast, checkConnectionEvt}
+var allChecks = []string{checkBadSignature, checkStale, checkUnknownSlug}
 
 // ---------------------------------------------------------------- an app that is right
 
@@ -270,13 +252,16 @@ func TestCheckWebhooksAGoodAppPassesEveryCheck(t *testing.T) {
 	target := serveWebhookApp(t, app)
 	c, hits := checkCtx(t, true)
 
-	rep, ok, _, _ := runChecks(t, c, target, "--operation", "orders", "--record", "42")
+	rep, ok, _, _ := runChecks(t, c, target)
 
-	if !ok || !rep.OK || rep.Summary != (webhookCheckSummary{Passed: 6}) {
+	if !ok || !rep.OK || rep.Summary != (webhookCheckSummary{Passed: 3}) {
 		t.Fatalf("ok=%v summary=%+v checks=%+v", ok, rep.Summary, rep.Checks)
 	}
 	if rep.URL != target || rep.App.ID != "app1" || !rep.App.Sandbox {
 		t.Fatalf("report = %+v", rep)
+	}
+	if len(rep.Checks) != len(allChecks) {
+		t.Fatalf("%d checks, want %d", len(rep.Checks), len(allChecks))
 	}
 	for i, id := range allChecks {
 		r := rep.Checks[i]
@@ -288,18 +273,15 @@ func TestCheckWebhooksAGoodAppPassesEveryCheck(t *testing.T) {
 		t.Errorf("the secret was fetched %d times", n)
 	}
 
-	// one request per check, in order, to the paths the kit's routes take
+	// one request per check, in order; with no --operation the refusals go to /runs/qube-check-N
 	seen := app.deliveries()
 	wantPaths := []string{
-		"/webhooks/qube/orders/qube-check-1",
-		"/webhooks/qube/orders/qube-check-2",
-		"/webhooks/qube/orders/qube-check-3",
+		"/webhooks/qube/runs/qube-check-1",
+		"/webhooks/qube/runs/qube-check-2",
 		"/webhooks/qube/qube-check-unknown/1",
-		"/webhooks/qube/orders/qube-check-5",
-		"/webhooks/qube/connection/42",
 	}
-	if len(seen) != 6 {
-		t.Fatalf("the app saw %d requests, want 6", len(seen))
+	if len(seen) != 3 {
+		t.Fatalf("the app saw %d requests, want 3", len(seen))
 	}
 	now := time.Now().Unix()
 	for i, d := range seen {
@@ -335,7 +317,7 @@ func TestCheckWebhooksAGoodAppPassesEveryCheck(t *testing.T) {
 	}
 
 	// the bodies look like the server's, and nothing in them is an app's record
-	for _, i := range []int{0, 1, 3, 4} {
+	for i := range seen {
 		var ev map[string]interface{}
 		if err := json.Unmarshal(seen[i].body, &ev); err != nil {
 			t.Fatal(err)
@@ -356,47 +338,26 @@ func TestCheckWebhooksAGoodAppPassesEveryCheck(t *testing.T) {
 			t.Errorf("request %d: links = %v", i+1, links)
 		}
 	}
-	var conn map[string]interface{}
-	_ = json.Unmarshal(seen[5].body, &conn)
-	cn, _ := conn["connection"].(map[string]interface{})
-	if conn["event"] != "connection.connected" || !strings.HasPrefix(conn["delivery_id"].(string), "qube-check") || cn["id"] != "qube-check-connection" {
-		t.Errorf("the connection event is %v", conn)
-	}
 }
 
-// Without --operation and --record only the checks that need neither are sent; the others say
-// what they need, and a skipped check is not a failure.
-func TestCheckWebhooksSkipsWhatNeedsAnOperationOrAnAccount(t *testing.T) {
+// --operation changes the segment the two refusal checks send to; the unknown path stays put.
+func TestCheckWebhooksOperationChoosesThePath(t *testing.T) {
 	app := newWebhookApp()
 	target := serveWebhookApp(t, app)
 	c, _ := checkCtx(t, true)
 
-	rep, ok, _, _ := runChecks(t, c, target)
+	rep, ok, _, _ := runChecks(t, c, target, "--operation", "orders")
 
-	if !ok || rep.Summary != (webhookCheckSummary{Passed: 3, Skipped: 3}) {
+	if !ok || rep.Summary != (webhookCheckSummary{Passed: 3}) {
 		t.Fatalf("ok=%v summary=%+v", ok, rep.Summary)
 	}
-	for _, id := range []string{checkRawBody, checkFast, checkConnectionEvt} {
-		r := resultOf(rep, id)
-		if r.Result != "skipped" || r.Pass != nil || !strings.Contains(r.Detail, "--") || r.Got != "" {
-			t.Errorf("%s = %+v", id, r)
-		}
+	var paths []string
+	for _, d := range app.deliveries() {
+		paths = append(paths, d.path)
 	}
-	if d := resultOf(rep, checkFast).Detail; !strings.Contains(d, "--operation") {
-		t.Errorf("fast-2xx detail = %q", d)
-	}
-	if d := resultOf(rep, checkConnectionEvt).Detail; !strings.Contains(d, "--record") {
-		t.Errorf("connection-event-2xx detail = %q", d)
-	}
-	// three requests, all to a route that verifies before it routes
-	seen := app.deliveries()
-	if len(seen) != 3 {
-		t.Fatalf("the app saw %d requests, want 3", len(seen))
-	}
-	for _, d := range seen {
-		if d.path != "/webhooks/qube/qube-check-unknown/1" {
-			t.Errorf("sent to %s", d.path)
-		}
+	want := "/webhooks/qube/orders/qube-check-1 /webhooks/qube/orders/qube-check-2 /webhooks/qube/qube-check-unknown/1"
+	if strings.Join(paths, " ") != want {
+		t.Errorf("paths = %v", paths)
 	}
 }
 
@@ -406,17 +367,20 @@ func TestCheckWebhooksTableNamesTheRuleOfEachCheck(t *testing.T) {
 	c, _ := checkCtx(t, true)
 	setJSON(t, false)
 	var ok bool
-	out := captureStdout(t, func() { ok = c.checkWebhooks([]string{target, "--operation", "orders"}) })
+	out := captureStdout(t, func() { ok = c.checkWebhooks([]string{target}) })
 	if !ok {
 		t.Fatalf("not ok:\n%s", out)
 	}
 	for _, want := range []string{"CHECK", "RULE", "SENT", "EXPECTED", "GOT", "RESULT",
 		"bad-signature-401", "verify-signature", "stale-timestamp-401", "refuse-stale-timestamp",
-		"raw-body-signature", "verify-raw-body", "unknown-operation-404", "fixed-operation-map",
-		"fast-2xx", "answer-fast-work-in-job", "connection-event-2xx", "connection-event-for-saved-connection",
-		"skipped", "--record", "5 passed, 0 failed, 1 skipped."} {
+		"unknown-operation-404", "fixed-operation-map", "3 passed, 0 failed, 0 skipped."} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the output lacks %q:\n%s", want, out)
+		}
+	}
+	for _, gone := range []string{"raw-body-signature", "fast-2xx", "connection-event-2xx"} {
+		if strings.Contains(out, gone) {
+			t.Errorf("the output still has %q:\n%s", gone, out)
 		}
 	}
 }
@@ -433,19 +397,15 @@ func TestCheckWebhooksEachMistakeFailsOnlyItsCheck(t *testing.T) {
 	}{
 		{"accepts a bad signature", func(a *webhookApp) { a.skipHMAC = true }, []string{checkBadSignature}, "didn't check the signature", "200"},
 		{"accepts a stale timestamp", func(a *webhookApp) { a.skipAge = true }, []string{checkStale}, "replayed", "200"},
-		{"verifies a re-serialized body", func(a *webhookApp) { a.reserialize = true }, []string{checkRawBody}, "re-serialized", "401"},
 		{"200s an unknown slug", func(a *webhookApp) { a.anySlug = true }, []string{checkUnknownSlug}, "fixed map", "200"},
-		{"answers slowly", func(a *webhookApp) { a.slowOp = 150 * time.Millisecond }, []string{checkFast}, "enqueue a job", "200 in"},
-		{"500s a connection event", func(a *webhookApp) { a.connStatus = 500 }, []string{checkConnectionEvt}, "log and skip", "500"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			withLimits(t, 0, 50*time.Millisecond)
 			app := newWebhookApp()
 			tc.tweak(app)
 			target := serveWebhookApp(t, app)
 			c, _ := checkCtx(t, true)
 
-			rep, ok, _, _ := runChecks(t, c, target, "--operation", "orders", "--record", "42")
+			rep, ok, _, _ := runChecks(t, c, target)
 
 			if ok || rep.OK {
 				t.Error("the report says it passed")
@@ -457,7 +417,7 @@ func TestCheckWebhooksEachMistakeFailsOnlyItsCheck(t *testing.T) {
 			if failed.Pass == nil || *failed.Pass || !strings.Contains(failed.Detail, tc.detail) || !strings.HasPrefix(failed.Got, tc.got) {
 				t.Errorf("failed check = %+v", failed)
 			}
-			if rep.Summary.Failed != 1 || rep.Summary.Passed != 5 {
+			if rep.Summary.Failed != 1 || rep.Summary.Passed != 2 {
 				t.Errorf("summary = %+v", rep.Summary)
 			}
 			for _, id := range allChecks {
@@ -469,24 +429,6 @@ func TestCheckWebhooksEachMistakeFailsOnlyItsCheck(t *testing.T) {
 	}
 }
 
-// A run event that is answered 500 fails the check for it, and the raw-body one, which is a run
-// event too and has to be answered 2xx.
-func TestCheckWebhooksAServerErrorOnRunEvents(t *testing.T) {
-	app := newWebhookApp()
-	app.opStatus = 500
-	target := serveWebhookApp(t, app)
-	c, _ := checkCtx(t, true)
-
-	rep, ok, _, _ := runChecks(t, c, target, "--operation", "orders", "--record", "42")
-
-	if ok || strings.Join(failedChecks(rep), ",") != checkFast+","+checkRawBody {
-		t.Fatalf("failed %v: %+v", failedChecks(rep), rep.Checks)
-	}
-	if d := resultOf(rep, checkFast).Detail; !strings.Contains(d, "enqueue") || !strings.Contains(d, "500") {
-		t.Errorf("detail = %q", d)
-	}
-}
-
 // An app whose webhook secret isn't this app's refuses everything signed rightly, and the
 // answer says so rather than blaming the body.
 func TestCheckWebhooksAWrongSecretIsNamedAsSuch(t *testing.T) {
@@ -495,33 +437,35 @@ func TestCheckWebhooksAWrongSecretIsNamedAsSuch(t *testing.T) {
 	target := serveWebhookApp(t, app)
 	c, _ := checkCtx(t, true)
 
-	rep, _, _, _ := runChecks(t, c, target, "--operation", "orders", "--record", "42")
+	rep, _, _, _ := runChecks(t, c, target)
 
-	want := []string{checkConnectionEvt, checkFast, checkRawBody, checkUnknownSlug}
+	want := []string{checkUnknownSlug}
 	if got := failedChecks(rep); strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("failed %v, want %v", got, want)
 	}
 	for _, id := range want {
-		if d := resultOf(rep, id).Detail; !strings.Contains(d, "QUBE_WEBHOOK_SECRET") || strings.Contains(d, "re-serialized") {
+		if d := resultOf(rep, id).Detail; !strings.Contains(d, "QUBE_WEBHOOK_SECRET") {
 			t.Errorf("%s detail = %q", id, d)
 		}
 	}
 }
 
-// An app that routes before it verifies answers 404 to the wrong signature, and the answer
-// says to pass --operation.
+// An app that routes before it verifies answers 404 to the wrong signature and the stale
+// timestamp, and the answer says to pass --operation. With the right one they pass.
 func TestCheckWebhooksARouterFirstAppIsToldToPassAnOperation(t *testing.T) {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/webhooks/qube/orders/", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(401) })
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
+	app := newWebhookApp()
+	app.routeFirst = true
+	target := serveWebhookApp(t, app)
 	c, _ := checkCtx(t, true)
 
-	rep, _, _, _ := runChecks(t, c, srv.URL+"/webhooks/qube")
+	rep, ok, _, _ := runChecks(t, c, strings.Replace(target, "/webhooks/qube", "/webhooks/qube/elsewhere", 1))
 
+	if ok {
+		t.Fatalf("passed: %+v", rep.Checks)
+	}
 	for _, id := range []string{checkBadSignature, checkStale} {
 		r := resultOf(rep, id)
-		if r.Result != "fail" || r.Status != 404 || !strings.Contains(r.Detail, "--operation") {
+		if r.Result != "fail" || r.Status != 404 || !strings.Contains(r.Detail, "--operation SLUG") || !strings.Contains(r.Detail, "answered 404 before checking the signature") {
 			t.Errorf("%s = %+v", id, r)
 		}
 	}
@@ -538,9 +482,9 @@ func TestCheckWebhooksReportsARedirectAndDoesNotFollowIt(t *testing.T) {
 	target := serveWebhookApp(t, app)
 	c, _ := checkCtx(t, true)
 
-	rep, ok, _, _ := runChecks(t, c, target, "--operation", "orders", "--record", "42")
+	rep, ok, _, _ := runChecks(t, c, target)
 
-	if ok || rep.Summary.Failed != 6 {
+	if ok || rep.Summary.Failed != 3 {
 		t.Fatalf("ok=%v summary=%+v", ok, rep.Summary)
 	}
 	for _, r := range rep.Checks {
@@ -551,8 +495,8 @@ func TestCheckWebhooksReportsARedirectAndDoesNotFollowIt(t *testing.T) {
 	if n := atomic.LoadInt32(&loginHits); n != 0 {
 		t.Errorf("the redirect was followed %d times", n)
 	}
-	if n := len(app.deliveries()); n != 6 {
-		t.Errorf("the app saw %d requests, want 6", n)
+	if n := len(app.deliveries()); n != 3 {
+		t.Errorf("the app saw %d requests, want 3", n)
 	}
 }
 
@@ -562,9 +506,9 @@ func TestCheckWebhooksReportsAConnectionRefused(t *testing.T) {
 	srv.Close()
 	c, _ := checkCtx(t, true)
 
-	rep, ok, _, _ := runChecks(t, c, target, "--operation", "orders", "--record", "42")
+	rep, ok, _, _ := runChecks(t, c, target)
 
-	if ok || rep.Summary.Failed != 6 {
+	if ok || rep.Summary.Failed != 3 {
 		t.Fatalf("ok=%v summary=%+v", ok, rep.Summary)
 	}
 	for _, r := range rep.Checks {
@@ -583,7 +527,7 @@ func TestCheckWebhooksGivesUpOnAnAppThatDoesNotAnswer(t *testing.T) {
 
 	rep, ok, _, _ := runChecks(t, c, target)
 
-	if ok || rep.Summary.Failed != 3 || rep.Summary.Skipped != 3 {
+	if ok || rep.Summary.Failed != 3 || rep.Summary.Skipped != 0 {
 		t.Fatalf("ok=%v summary=%+v", ok, rep.Summary)
 	}
 	for _, id := range []string{checkBadSignature, checkStale, checkUnknownSlug} {
@@ -610,8 +554,7 @@ func TestCheckWebhooksNeverShowsTheSecret(t *testing.T) {
 	for _, asJSON := range []bool{false, true} {
 		app := newWebhookApp()
 		app.echoSecret = true
-		app.opStatus = 500
-		app.connStatus = 302
+		app.anySlug = true
 		target := serveWebhookApp(t, app)
 		c, _ := checkCtx(t, true)
 		setJSON(t, asJSON)
@@ -619,12 +562,12 @@ func TestCheckWebhooksNeverShowsTheSecret(t *testing.T) {
 		var out, errOut string
 		var ok bool
 		errOut = captureStderr(t, func() {
-			out = captureStdout(t, func() { ok = c.checkWebhooks([]string{target, "--operation", "orders", "--record", "42"}) })
+			out = captureStdout(t, func() { ok = c.checkWebhooks([]string{target}) })
 		})
 		if ok {
 			t.Fatalf("json=%v: the failures passed", asJSON)
 		}
-		if n := len(app.deliveries()); n != 6 {
+		if n := len(app.deliveries()); n != 3 {
 			t.Fatalf("json=%v: the app saw %d requests, so the secret was never quoted to it", asJSON, n)
 		}
 		everything := out + "\n" + errOut
@@ -703,57 +646,17 @@ func testRun() *webhookCheckRun {
 		app: apiAppForTest()}
 }
 
-// The ordinary bodies are compact, with their keys in order, as the server writes them, so an
-// app that parses and writes one out again gets the same bytes: only the raw-body check exposes it.
-func TestOrdinaryBodiesSurviveReserialization(t *testing.T) {
+// The run event is compact, with its keys in order, as the server writes it.
+func TestRunEventSurvivesReserialization(t *testing.T) {
 	r := testRun()
-	for name, body := range map[string][]byte{"run event": r.runEvent(time.Now()), "connection event": r.connectionEvent(time.Now())} {
-		var v map[string]interface{}
-		if err := json.Unmarshal(body, &v); err != nil {
-			t.Fatal(err)
-		}
-		again, _ := json.Marshal(v)
-		if !bytes.Equal(again, body) {
-			t.Errorf("%s changes when it is parsed and written out again:\n%s\n%s", name, body, again)
-		}
+	body := r.runEvent(time.Now())
+	var v map[string]interface{}
+	if err := json.Unmarshal(body, &v); err != nil {
+		t.Fatal(err)
 	}
-}
-
-// The raw-body event is the run event with unusual spacing, key order and \u escapes: valid
-// JSON with the same fields, and not what any serializer writes.
-func TestRawBodyIsTheRunEventWrittenUnusually(t *testing.T) {
-	r := testRun()
-	now := time.Now()
-	raw := r.rawRunEvent(now)
-	if !json.Valid(raw) {
-		t.Fatalf("not JSON:\n%s", raw)
-	}
-	var fromRaw, fromRun map[string]interface{}
-	_ = json.Unmarshal(raw, &fromRaw)
-	_ = json.Unmarshal(r.runEvent(now), &fromRun)
-	if fromRaw["outcome"] != "café ✓ qube-check" {
-		t.Errorf("outcome = %v", fromRaw["outcome"])
-	}
-	delete(fromRaw, "outcome")
-	delete(fromRun, "outcome")
-	a, _ := json.Marshal(fromRaw)
-	b, _ := json.Marshal(fromRun)
-	if !bytes.Equal(a, b) {
-		t.Errorf("the fields differ:\n%s\n%s", a, b)
-	}
-	again, _ := json.Marshal(fromRaw)
-	for _, unusual := range []string{`\u00E9`, `\u2713`, `\/`, "\t", "\n", " :", "  "} {
-		if !strings.Contains(string(raw), unusual) {
-			t.Errorf("the raw body lacks %q:\n%s", unusual, raw)
-		}
-	}
-	if bytes.Equal(raw, again) || bytes.Contains(again, []byte("\t")) {
-		t.Error("re-serialized, it is the same bytes")
-	}
-	// the keys are not in order
-	idx := func(k string) int { return strings.Index(string(raw), `"`+k+`"`) }
-	if !(idx("links") < idx("app_id") && idx("reference") < idx("event")) {
-		t.Errorf("keys are in order:\n%s", raw)
+	again, _ := json.Marshal(v)
+	if !bytes.Equal(again, body) {
+		t.Errorf("the run event changes when it is parsed and written out again:\n%s\n%s", body, again)
 	}
 }
 
@@ -778,6 +681,9 @@ func TestCheckRulesAreTheIntegrationRulesLiveIds(t *testing.T) {
 		if r.Live != "" {
 			live[r.Live] = r.ID
 		}
+	}
+	if len(checkRules) != 3 || len(allChecks) != 3 {
+		t.Errorf("qube check webhooks has %d checks and %d rules, want 3", len(allChecks), len(checkRules))
 	}
 	for _, id := range allChecks {
 		if checkRules[id] == "" || live[id] != checkRules[id] {
@@ -868,9 +774,9 @@ func TestCheckWebhooksProductionWithTheFlag(t *testing.T) {
 	target := serveWebhookApp(t, app)
 	c, hits := checkCtx(t, false)
 
-	rep, ok, _, _ := runChecks(t, c, target, "--operation", "orders", "--production")
+	rep, ok, _, _ := runChecks(t, c, target, "--production")
 
-	if !ok || rep.App.Sandbox || rep.Summary.Passed != 5 {
+	if !ok || rep.App.Sandbox || rep.Summary.Passed != 3 {
 		t.Fatalf("ok=%v report=%+v", ok, rep)
 	}
 	if atomic.LoadInt32(hits) != 1 {
@@ -891,15 +797,15 @@ func TestCheckWebhooksRemoteURLWithYes(t *testing.T) {
 	c, _ := checkCtx(t, true)
 	c.yes = true
 
-	rep, ok, _, errOut := runChecks(t, c, "http://hooks.example.test:8080/webhooks/qube", "--operation", "orders")
+	rep, ok, _, errOut := runChecks(t, c, "http://hooks.example.test:8080/webhooks/qube")
 
-	if !ok || rep.Summary.Passed != 5 {
+	if !ok || rep.Summary.Passed != 3 {
 		t.Fatalf("ok=%v summary=%+v", ok, rep.Summary)
 	}
 	if !strings.Contains(errOut, "hooks.example.test:8080/webhooks/qube isn't on this machine") {
 		t.Errorf("no warning: %q", errOut)
 	}
-	if seen := app.deliveries(); len(seen) != 5 || seen[0].host != "hooks.example.test:8080" {
+	if seen := app.deliveries(); len(seen) != 3 || seen[0].host != "hooks.example.test:8080" {
 		t.Errorf("the app saw %d requests", len(seen))
 	}
 }
@@ -954,7 +860,7 @@ func TestCheckWebhooksCommandLine(t *testing.T) {
 		}{
 			{"QuBe Sync's own host", true, func(host, app string) string { return "webhooks " + host + "/webhooks/qube" }, nil, ui.ExitFailure, "QuBe Sync's own host"},
 			{"a relay URL", true, func(host, app string) string { return "webhooks " + host + "/relay/rl_4f7k2m9q8t3w6x1z5c0v7b2n4h" }, nil, ui.ExitFailure, "qube listen"},
-			{"a production app without --production", false, func(host, app string) string { return "webhooks " + app + " --operation orders" }, nil, ui.ExitUsage, "--production"},
+			{"a production app without --production", false, func(host, app string) string { return "webhooks " + app }, nil, ui.ExitUsage, "--production"},
 			{"a URL that isn't on this machine", true, func(host, app string) string { return "webhooks http://hooks.example.test:8080/webhooks/qube" }, nil, ui.ExitUsage, "--yes"},
 			{"a remote URL under --json", true, func(host, app string) string { return "webhooks https://hooks.example.test/webhooks/qube" }, []string{"QUBE_TEST_CHECK_JSON=1"}, ui.ExitUsage, "--yes"},
 			{"a read-only session", true, func(host, app string) string { return "webhooks " + app }, []string{"QUBE_TEST_CHECK_MODE=readonly"}, ui.ExitFailure, "read-only"},
@@ -994,12 +900,12 @@ func TestCheckWebhooksCommandLine(t *testing.T) {
 		appURL := serveWebhookApp(t, app)
 		c, _ := checkCtx(t, true)
 
-		stdout, stderr, code := runChild(t, c.host, "webhooks "+appURL+" --operation orders")
+		stdout, stderr, code := runChild(t, c.host, "webhooks "+appURL)
 		if code != ui.ExitFailure || !strings.Contains(stdout, "FAIL") || !strings.Contains(stdout, "bad-signature-401") || !strings.Contains(stdout, "1 failed") {
 			t.Errorf("exit %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
 		}
 
-		stdout, _, code = runChild(t, c.host, "webhooks "+appURL+" --operation orders", "QUBE_TEST_CHECK_JSON=1")
+		stdout, _, code = runChild(t, c.host, "webhooks "+appURL, "QUBE_TEST_CHECK_JSON=1")
 		var rep webhookCheckReport
 		if err := json.Unmarshal([]byte(stdout), &rep); err != nil || code != ui.ExitFailure || rep.OK || rep.Summary.Failed != 1 {
 			t.Errorf("exit %d, %v\n%s", code, err, stdout)
@@ -1007,8 +913,8 @@ func TestCheckWebhooksCommandLine(t *testing.T) {
 
 		good := newWebhookApp()
 		goodURL := serveWebhookApp(t, good)
-		stdout, _, code = runChild(t, c.host, "webhooks "+goodURL+" --operation orders --record 42")
-		if code != 0 || !strings.Contains(stdout, "6 passed, 0 failed, 0 skipped.") {
+		stdout, _, code = runChild(t, c.host, "webhooks "+goodURL+" --operation orders")
+		if code != 0 || !strings.Contains(stdout, "3 passed, 0 failed, 0 skipped.") {
 			t.Errorf("exit %d\n%s", code, stdout)
 		}
 	})
@@ -1017,8 +923,8 @@ func TestCheckWebhooksCommandLine(t *testing.T) {
 		good := newWebhookApp()
 		goodURL := serveWebhookApp(t, good)
 		c, _ := checkCtx(t, true)
-		stdout, _, code := runChild(t, c.host, "webhooks --operation orders --record 42 "+goodURL)
-		if code != 0 || !strings.Contains(stdout, "6 passed") {
+		stdout, _, code := runChild(t, c.host, "webhooks --operation orders "+goodURL)
+		if code != 0 || !strings.Contains(stdout, "3 passed") {
 			t.Errorf("exit %d\n%s", code, stdout)
 		}
 	})
@@ -1030,14 +936,14 @@ func TestCheckIsInCompletionAndHelp(t *testing.T) {
 	if !contains(commandTree[""], "check") {
 		t.Error("completion's top level lacks check")
 	}
-	for _, w := range []string{"webhooks", "--operation", "--record", "--production"} {
+	for _, w := range []string{"webhooks", "--operation", "--production"} {
 		if !contains(commandTree["check"], w) {
 			t.Errorf("completion's check lacks %s", w)
 		}
 	}
 	setenv(t, "QUBE_CONFIG", t.TempDir()+"/credentials.json")
 	help := captureStdout(t, usage)
-	for _, want := range []string{"check webhooks URL [--operation SLUG] [--record ID] [--production]", "--yes"} {
+	for _, want := range []string{"check webhooks URL [--operation SLUG] [--production]", "--yes"} {
 		if !strings.Contains(help, want) {
 			t.Errorf("qube help lacks %q", want)
 		}

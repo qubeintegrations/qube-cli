@@ -311,12 +311,11 @@ Webhooks on this machine (sandbox apps; as the default app, or --app):
                                    Ctrl-C stops
 
 Checking your integration (as the default app, or --app):
-  check webhooks URL [--operation SLUG] [--record ID] [--production]
+  check webhooks URL [--operation SLUG] [--production]
                                    sends signed test deliveries to your app's webhook endpoint (URL is
                                    QUBE_WEBHOOK_URL) and grades the answers: a wrong signature and a stale
-                                   timestamp get 401, a signed body with unusual spacing is accepted, an
-                                   unknown operation gets 404, a run event (--operation SLUG) and a connection
-                                   event (--record ID) get a 2xx within 5 s. Exits 1 when a check fails.
+                                   timestamp sent to URL/runs/<id> (--operation changes runs) get 401, and an
+                                   unknown path gets 404. Nothing reaches a real run. Exits 1 when a check fails.
                                    The webhook secret signs them and is never shown; not for QuBe Sync's own
                                    host, and a URL that isn't on this machine needs --yes
 
