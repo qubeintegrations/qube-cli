@@ -323,6 +323,46 @@ func statusText(host string, d map[string]interface{}) string {
 		line(mark(s), "Runs", text)
 	}
 
+	if w, wErr := section("workflows"); w == nil {
+		unavailable("Workflows", wErr)
+	} else {
+		text := fmt.Sprintf("%s in %d days, from %s", plural(num(w["runs"]), "run", "runs"), num(w["days"]), plural(num(w["organizations_running"]), "organization", "organizations"))
+		if byState, _ := w["runs_by_state"].(map[string]interface{}); len(byState) > 0 {
+			states := make([]string, 0, len(byState))
+			for state := range byState {
+				states = append(states, state)
+			}
+			sort.Slice(states, func(i, j int) bool {
+				if num(byState[states[i]]) != num(byState[states[j]]) {
+					return num(byState[states[i]]) > num(byState[states[j]])
+				}
+				return states[i] < states[j]
+			})
+			var parts []string
+			for _, state := range states {
+				parts = append(parts, fmt.Sprintf("%d %s", num(byState[state]), state))
+			}
+			text += " (" + strings.Join(parts, ", ") + ")"
+		}
+		text += fmt.Sprintf(" · %s in %s, %d new · %d /try demo runs", plural(num(w["workflows"]), "workflow", "workflows"), plural(num(w["organizations_with_workflows"]), "organization", "organizations"), num(w["new_workflows"]), num(w["demo_runs"]))
+		line(mark(w), "Workflows", text)
+		top, _ := w["top"].([]interface{})
+		for _, t := range top {
+			m, _ := t.(map[string]interface{})
+			row := fmt.Sprintf("%d · %s", num(m["runs"]), str(m["organization_name"]))
+			if p := num(m["production"]); p > 0 {
+				row += fmt.Sprintf(" (%d production)", p)
+			}
+			if keys := strs(m["workflow_keys"]); len(keys) > 0 {
+				row += " · " + strings.Join(keys, ", ")
+			}
+			if at := str(m["last_run_at"]); at != "" {
+				row += " · last " + stamp(at)
+			}
+			fmt.Fprintf(&b, "    %s\n", row)
+		}
+	}
+
 	if e, eErr := section("events"); e == nil {
 		unavailable("Events", eErr)
 	} else {
@@ -343,8 +383,69 @@ func statusText(host string, d map[string]interface{}) string {
 		line(mark(e), "Events", text)
 	}
 
+	if db, dbErr := section("database"); db == nil {
+		unavailable("Database", dbErr)
+	} else {
+		text := fmt.Sprintf("%s of %s (%d%% used)", bytesWords(num(db["bytes"])), bytesWords(num(db["volume_bytes"])), num(db["percent_used"]))
+		var tables []string
+		list, _ := db["largest_tables"].([]interface{})
+		for _, t := range list {
+			m, _ := t.(map[string]interface{})
+			tables = append(tables, fmt.Sprintf("%s %s", str(m["table"]), bytesWords(num(m["bytes"]))))
+		}
+		if len(tables) > 0 {
+			text += " · largest: " + strings.Join(tables, ", ")
+		}
+		line(mark(db), "Database", text)
+	}
+
+	if cr, crErr := section("cron"); cr == nil {
+		unavailable("Cron", crErr)
+	} else {
+		late, _ := cr["late"].([]interface{})
+		text := fmt.Sprintf("%d of %d cron workers late", len(late), num(cr["workers"]))
+		var rows []string
+		for _, l := range late {
+			m, _ := l.(map[string]interface{})
+			when := "no completed run in 7 days"
+			if at := str(m["last_completed_at"]); at != "" {
+				when = "last done " + stamp(at)
+			}
+			rows = append(rows, fmt.Sprintf("%s (%s, %s)", strings.TrimPrefix(str(m["worker"]), "Qube."), str(m["schedule"]), when))
+		}
+		if len(rows) > 0 {
+			text += ": " + strings.Join(rows, "; ")
+		}
+		line(mark(cr), "Cron", text)
+	}
+
+	if bk, bkErr := section("backups"); bk == nil {
+		unavailable("Backups", bkErr)
+	} else {
+		var text string
+		switch {
+		case bk["configured"] != true:
+			text = "not configured"
+		case str(bk["last_success_at"]) != "":
+			text = fmt.Sprintf("last good backup %d h ago", num(bk["age_hours"]))
+			if n := num(bk["last_success_bytes"]); n > 0 {
+				text += ", " + bytesWords(n)
+			}
+			text += fmt.Sprintf(" (over %d h needs attention)", num(bk["max_age_hours"]))
+		default:
+			text = "no good backup yet"
+		}
+		if run, ok := bk["last_run"].(map[string]interface{}); ok {
+			text += fmt.Sprintf(" · last run %s, started %s", str(run["state"]), stamp(str(run["started_at"])))
+			if e := str(run["error"]); e != "" {
+				text += ": " + truncate(e, 80)
+			}
+		}
+		line(mark(bk), "Backups", text)
+	}
+
 	// a section this CLI doesn't know yet still shows that it failed
-	known := map[string]bool{"nodes": true, "web_connectors": true, "soap_sessions": true, "queues": true, "failed_jobs": true, "webhooks_failed": true, "requests_waiting": true, "stuck_runs": true, "events": true}
+	known := map[string]bool{"nodes": true, "web_connectors": true, "soap_sessions": true, "queues": true, "failed_jobs": true, "webhooks_failed": true, "requests_waiting": true, "stuck_runs": true, "workflows": true, "events": true, "database": true, "cron": true, "backups": true}
 	var other []string
 	for name := range errs {
 		if !known[name] {
@@ -384,6 +485,22 @@ func minutesWords(m int) string {
 		return fmt.Sprintf("%d h", m/60)
 	}
 	return fmt.Sprintf("%d min", m)
+}
+
+// bytesWords is a size as people read it: 512 B, 3.4 MB, 1.2 GB.
+func bytesWords(n int) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	value, suffix := float64(n), "B"
+	for _, s := range []string{"KB", "MB", "GB", "TB"} {
+		if value < unit {
+			break
+		}
+		value, suffix = value/unit, s
+	}
+	return fmt.Sprintf("%.1f %s", value, suffix)
 }
 
 func joinNames(names ...string) string {

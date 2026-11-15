@@ -443,6 +443,15 @@ func statusSnapshot(attention bool) map[string]interface{} {
 		"requests_waiting": map[string]interface{}{"connections": 0, "requests": 0, "older_than_minutes": 60, "stalled_connections": 0, "top": []interface{}{}, "attention": false},
 		"stuck_runs":       map[string]interface{}{"running_without_progress": 1, "minutes": 30, "run_ids": []string{"run-9"}, "steps_swept_last_hour": 0, "attention": attention},
 		"events":           map[string]interface{}{"count": 41, "hours": 24, "attention": false, "last": map[string]interface{}{"kind": "webhook_failed", "at": "2026-10-14T13:58:00Z", "production": true, "organization_name": "Globex"}},
+		"workflows": map[string]interface{}{"days": 7, "workflows": 12, "new_workflows": 2, "organizations_with_workflows": 4, "runs": 9, "organizations_running": 2,
+			"runs_by_state": map[string]interface{}{"completed": 7, "failed": 1, "cancelled": 1}, "demo_runs": 21, "attention": false,
+			"top": []map[string]interface{}{{"organization_name": "Globex", "runs": 8, "production": 6, "workflow_keys": []string{"add_transaction", "upsert"}, "last_run_at": "2026-10-14T13:00:00Z"}}},
+		"database": map[string]interface{}{"bytes": 1288490188, "volume_bytes": 10737418240, "percent_used": 12, "attention": false,
+			"largest_tables": []map[string]interface{}{{"table": "queued_requests", "bytes": 734003200}}},
+		"cron": map[string]interface{}{"workers": 9, "attention": attention,
+			"late": []map[string]interface{}{{"worker": "Qube.Backups.BackupWorker", "schedule": "0 3 * * *", "last_completed_at": nil}}},
+		"backups": map[string]interface{}{"configured": true, "last_success_at": "2026-10-14T03:00:00Z", "age_hours": 11, "last_success_bytes": 52428800, "max_age_hours": 36, "attention": false,
+			"last_run": map[string]interface{}{"state": "succeeded", "started_at": "2026-10-14T03:00:00Z", "error": nil}},
 	}
 }
 
@@ -472,7 +481,12 @@ func TestAdminStatusCheckExitCodes(t *testing.T) {
 		"! Webhooks       5 failed for good in 24 h, in 3 production apps (and 2 in sandbox apps)",
 		"  Requests       no connection has had requests waiting over 1 h",
 		"! Runs           1 running with no progress in 30 min · 0 steps swept by the stuck-run reaper in 1 h · run-9",
-		"  Events         41 in 24 h · last: webhook_failed at "} {
+		"  Events         41 in 24 h · last: webhook_failed at ",
+		"  Workflows      9 runs in 7 days, from 2 organizations (7 completed, 1 cancelled, 1 failed) · 12 workflows in 4 organizations, 2 new · 21 /try demo runs",
+		"    8 · Globex (6 production) · add_transaction, upsert · last ",
+		"  Database       1.2 GB of 10.0 GB (12% used) · largest: queued_requests 700.0 MB",
+		"! Cron           1 of 9 cron workers late: Backups.BackupWorker (0 3 * * *, no completed run in 7 days)",
+		"  Backups        last good backup 11 h ago, 50.0 MB (over 36 h needs attention) · last run succeeded, started "} {
 		if !strings.Contains(out, want) {
 			t.Errorf("status lacks %q:\n%s", want, out)
 		}
