@@ -34,8 +34,34 @@ func (c *ctx) requireStaff(what string) config.Session {
 		ui.Fail("not logged in to %s: QuBe Sync staff run `qube login --admin`", c.host)
 	}
 	if !s.Staff() {
-		ui.Fail("this session holds no staff permissions, so it can't %s. QuBe Sync staff log in with `qube login --admin`.", what)
+		s = c.refreshStaff(s, what)
 	}
+	return s
+}
+
+// refreshStaff asks the host what a session saved without staff permissions holds now: login
+// saves what it held then, which is none while staff access is switched off.
+func (c *ctx) refreshStaff(s config.Session, what string) config.Session {
+	var out struct {
+		Data struct {
+			Session map[string]interface{} `json:"session"`
+		} `json:"data"`
+	}
+	if err := c.staffClient().Do("GET", "/api/cli/me", nil, nil, &out); err == nil {
+		approved, held := strs(out.Data.Session["permissions"]), strs(out.Data.Session["effective_permissions"])
+		if len(held) > 0 {
+			s.Permissions = held
+			c.cfg.Sessions[c.host] = s
+			if err := c.cfg.Save(); err != nil {
+				fail(fmt.Errorf("saving session: %w", err))
+			}
+			return s
+		}
+		if len(approved) > 0 {
+			ui.Fail("this session was approved for %s but holds none of it now, so it can't %s: staff access is switched off on %s (an agent's session: until a person runs `qube admin agents on`), or the role changed.", strings.Join(approved, " "), what, c.host)
+		}
+	}
+	ui.Fail("this session holds no staff permissions, so it can't %s. QuBe Sync staff log in with `qube login --admin`.", what)
 	return s
 }
 
