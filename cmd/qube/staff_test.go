@@ -422,6 +422,47 @@ func TestAdminNeedsAStaffSession(t *testing.T) {
 	}
 }
 
+// A session saved with none (staff access was off at login) asks the host again, and keeps
+// what it holds now.
+func TestAdminRefreshesAStaffSessionSavedWithNone(t *testing.T) {
+	c := staffCtx(t, true, map[string]http.HandlerFunc{
+		"/api/cli/me": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, 200, map[string]interface{}{"data": map[string]interface{}{"session": map[string]interface{}{
+				"permissions": []string{"admin.read", "admin.read_customer_data"}, "effective_permissions": []string{"admin.read", "admin.read_customer_data"}}}})
+		},
+	})
+	s := c.cfg.Sessions[c.host]
+	s.Permissions = nil
+	c.cfg.Sessions[c.host] = s
+	if err := c.cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	got := c.requireStaff("use `qube admin`")
+	if strings.Join(got.Permissions, " ") != "admin.read admin.read_customer_data" || strings.Join(saved(t, c).Permissions, " ") != "admin.read admin.read_customer_data" {
+		t.Fatalf("held %v, saved %v", got.Permissions, saved(t, c).Permissions)
+	}
+}
+
+// Approved but held by none (staff access switched off): says so, and sends nothing to /api/admin.
+func TestAdminSaysWhenApprovedStaffAccessIsOff(t *testing.T) {
+	if inChild(t, func(c *ctx) { c.admin([]string{"status"}) }) {
+		return
+	}
+	var sent []string
+	c := newAPITest(t, map[string]http.HandlerFunc{
+		"/api/admin/": func(w http.ResponseWriter, r *http.Request) { sent = append(sent, r.URL.Path) },
+		"/api/cli/me": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, 200, map[string]interface{}{"data": map[string]interface{}{"session": map[string]interface{}{
+				"permissions": []string{"admin.read"}, "effective_permissions": []string{}}}})
+		},
+	})
+	withConfig(t, c)
+	code, out := runChild(t, c)
+	if code != ui.ExitFailure || !strings.Contains(out, "approved for admin.read but holds none of it now") || !strings.Contains(out, "qube admin agents on") || len(sent) > 0 {
+		t.Fatalf("exit %d, sent %v:\n%s", code, sent, out)
+	}
+}
+
 func statusSnapshot(attention bool) map[string]interface{} {
 	return map[string]interface{}{
 		"generated_at":   "2026-10-14T14:02:11Z",

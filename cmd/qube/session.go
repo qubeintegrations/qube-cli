@@ -127,7 +127,7 @@ func (c *ctx) login(args []string) {
 		return
 	}
 	if len(s.Permissions) == 0 {
-		ui.Warn("the session holds no staff permissions: the person approving ticked none, or %s doesn't offer staff sessions yet", c.host)
+		ui.Warn("the session holds no staff permissions now: the person approving ticked none, staff access is switched off on %s (for an agent: `qube admin agents`), or it doesn't offer staff sessions yet. `qube admin` checks again each time.", c.host)
 		return
 	}
 	fmt.Printf("Staff: %s\n", strings.Join(s.Permissions, " "))
